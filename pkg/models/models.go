@@ -33,6 +33,7 @@ type Config struct {
 	Worktree WorktreeConfig `mapstructure:"worktree"` // Worktree-related configuration
 	Finder   FinderConfig   `mapstructure:"finder"`   // Fuzzy finder configuration
 	UI       UIConfig       `mapstructure:"ui"`       // UI-related configuration
+	Naming   NamingConfig   `mapstructure:"naming"`   // Naming and template configuration
 	Claude   ClaudeConfig   `mapstructure:"claude"`   // Claude Code task queue configuration
 }
 
@@ -51,6 +52,12 @@ type FinderConfig struct {
 type UIConfig struct {
 	Icons     bool `mapstructure:"icons"`      // Enable icon display
 	TildeHome bool `mapstructure:"tilde_home"` // Display home directory as ~
+}
+
+// NamingConfig contains directory naming and template configuration options.
+type NamingConfig struct {
+	Template      string            `mapstructure:"template"`       // Directory name template
+	SanitizeChars map[string]string `mapstructure:"sanitize_chars"` // Character replacement for branch names
 }
 
 // WorktreeStatus represents the current status of a worktree.

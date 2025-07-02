@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/d-kuro/gwq/internal/template"
 	"github.com/d-kuro/gwq/internal/url"
 	"github.com/d-kuro/gwq/pkg/models"
 	"github.com/d-kuro/gwq/pkg/utils"
@@ -195,7 +196,7 @@ func (m *Manager) ValidateWorktreePath(path string) error {
 	return nil
 }
 
-// generateWorktreePath generates a path for a new worktree using URL-based hierarchy.
+// generateWorktreePath generates a path for a new worktree using template configuration.
 func (m *Manager) generateWorktreePath(branch string) (string, error) {
 	// Get repository URL
 	repoURL, err := m.git.GetRepositoryURL()
@@ -209,8 +210,26 @@ func (m *Manager) generateWorktreePath(branch string) (string, error) {
 		return "", fmt.Errorf("failed to parse repository URL: %w", err)
 	}
 
-	// Generate path using URL hierarchy
-	path := url.GenerateWorktreePath(m.config.Worktree.BaseDir, repoInfo, branch)
+	// Use template if configured, otherwise fall back to default URL hierarchy
+	if m.config.Naming.Template != "" {
+		// Create template processor
+		processor, err := template.New(m.config.Naming.Template, m.config.Naming.SanitizeChars)
+		if err != nil {
+			// Fall back to default hierarchy if template is invalid
+			return url.GenerateWorktreePath(m.config.Worktree.BaseDir, repoInfo, branch), nil
+		}
 
+		// Generate path using template
+		path, err := processor.GeneratePath(m.config.Worktree.BaseDir, repoInfo, branch)
+		if err != nil {
+			// Fall back to default hierarchy if template execution fails
+			return url.GenerateWorktreePath(m.config.Worktree.BaseDir, repoInfo, branch), nil
+		}
+
+		return path, nil
+	}
+
+	// Fall back to default URL hierarchy
+	path := url.GenerateWorktreePath(m.config.Worktree.BaseDir, repoInfo, branch)
 	return path, nil
 }
