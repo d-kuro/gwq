@@ -189,3 +189,13 @@ func SanitizeForFilesystem(input string) string {
 
 	return result
 }
+
+// EscapeForShell escapes a string for safe shell usage by escaping special characters.
+func EscapeForShell(s string) string {
+	// Replace problematic characters with escaped versions
+	s = strings.ReplaceAll(s, `\`, `\\`)  // Escape backslashes first
+	s = strings.ReplaceAll(s, `"`, `\"`)  // Escape double quotes
+	s = strings.ReplaceAll(s, `$`, `\$`)  // Escape dollar signs (variable expansion)
+	s = strings.ReplaceAll(s, "`", "\\`") // Escape backticks (command substitution)
+	return s
+}

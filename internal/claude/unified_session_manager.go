@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/d-kuro/gwq/internal/tmux"
 	"github.com/d-kuro/gwq/pkg/models"
+	"github.com/d-kuro/gwq/pkg/utils"
 )
 
 // UnifiedSessionManager manages tmux sessions for all execution types
@@ -95,7 +95,7 @@ func (usm *UnifiedSessionManager) buildClaudeCommand(execution *UnifiedExecution
 // buildTaskCommand builds Claude command for task execution
 func (usm *UnifiedSessionManager) buildTaskCommand(execution *UnifiedExecution) string {
 	// Escape the prompt for shell
-	escapedPrompt := escapeForShell(execution.Prompt)
+	escapedPrompt := utils.EscapeForShell(execution.Prompt)
 
 	// Generate log file path based on execution ID and timestamp
 	// Note: ExecutionID already includes type prefix (e.g., "task-{id}"), so use it directly
@@ -187,14 +187,4 @@ func (usm *UnifiedSessionManager) KillSession(sessionName string) error {
 // ListSessions lists all sessions
 func (usm *UnifiedSessionManager) ListSessions() ([]*tmux.Session, error) {
 	return usm.tmuxManager.ListSessions()
-}
-
-// escapeForShell escapes a string for safe shell usage
-func escapeForShell(s string) string {
-	// Replace problematic characters
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	s = strings.ReplaceAll(s, `$`, `\$`)
-	s = strings.ReplaceAll(s, "`", "\\`")
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	return s
 }

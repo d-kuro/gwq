@@ -136,3 +136,61 @@ func TestSanitizeForFilesystem(t *testing.T) {
 		})
 	}
 }
+
+func TestEscapeForShell(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "simple string",
+			input:    "hello world",
+			expected: "hello world",
+		},
+		{
+			name:     "string with double quotes",
+			input:    `echo "hello"`,
+			expected: `echo \"hello\"`,
+		},
+		{
+			name:     "string with dollar signs",
+			input:    "echo $HOME",
+			expected: `echo \$HOME`,
+		},
+		{
+			name:     "string with backticks",
+			input:    "echo `date`",
+			expected: "echo \\`date\\`",
+		},
+		{
+			name:     "string with backslashes",
+			input:    `path\to\file`,
+			expected: `path\\to\\file`,
+		},
+		{
+			name:     "complex command",
+			input:    `git commit -m "Fix bug with $variable and \path"`,
+			expected: `git commit -m \"Fix bug with \$variable and \\path\"`,
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "multiple special chars",
+			input:    `"$test"` + "`" + `\`,
+			expected: `\"\$test\"` + "\\`" + `\\`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := EscapeForShell(tt.input)
+			if result != tt.expected {
+				t.Errorf("EscapeForShell(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}

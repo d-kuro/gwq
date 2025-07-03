@@ -16,6 +16,7 @@ import (
 	"github.com/d-kuro/gwq/internal/worktree"
 	"github.com/d-kuro/gwq/pkg/models"
 	"github.com/d-kuro/gwq/pkg/system"
+	"github.com/d-kuro/gwq/pkg/utils"
 )
 
 // ClaudeCodeExecutor handles the actual execution of Claude Code commands
@@ -88,7 +89,7 @@ func (cce *ClaudeCodeExecutor) buildClaudeCommand(execution *UnifiedExecution) s
 	args = append(args, "--dangerously-skip-permissions", "--output-format", "stream-json")
 
 	// Add the prompt
-	args = append(args, "-p", fmt.Sprintf(`"%s"`, escapeForShell(execution.Prompt)))
+	args = append(args, "-p", fmt.Sprintf(`"%s"`, utils.EscapeForShell(execution.Prompt)))
 
 	return strings.Join(args, " ")
 }
