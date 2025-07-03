@@ -285,6 +285,7 @@ func executeInWorktree(worktreePath string, commandArgs []string, stay bool) err
 
 		cmd := exec.Command(shell)
 		cmd.Dir = worktreePath
+		cmd.Env = os.Environ()
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -301,6 +302,7 @@ func executeInWorktree(worktreePath string, commandArgs []string, stay bool) err
 	}
 
 	cmd.Dir = worktreePath
+	cmd.Env = os.Environ()
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
