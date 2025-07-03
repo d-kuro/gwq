@@ -43,6 +43,13 @@ func Init() error {
 	viper.SetDefault("ui.icons", true)
 	viper.SetDefault("ui.tilde_home", true)
 
+	// Naming defaults
+	viper.SetDefault("naming.template", "{{.Host}}/{{.Owner}}/{{.Repository}}/{{.Branch}}")
+	viper.SetDefault("naming.sanitize_chars", map[string]string{
+		"/": "-",
+		":": "-",
+	})
+
 	// Claude defaults
 	viper.SetDefault("claude.executable", "claude")
 	viper.SetDefault("claude.config_dir", "~/.config/gwq/claude")
