@@ -293,7 +293,7 @@ func executeInWorktree(worktreePath string, commandArgs []string, stay bool) err
 	cmd.Stderr = os.Stderr
 
 	err := cmd.Run()
-	
+
 	if stay {
 		// Launch a new shell in the worktree directory after command execution
 		shell := os.Getenv("SHELL")
