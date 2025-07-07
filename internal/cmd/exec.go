@@ -312,7 +312,7 @@ func executeInWorktree(worktreePath string, commandArgs []string, stay bool) err
 		shellCmd.Stderr = os.Stderr
 
 		// Run the shell regardless of the original command's exit status
-		shellCmd.Run()
+		_ = shellCmd.Run()
 	}
 
 	return err
