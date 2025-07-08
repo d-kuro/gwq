@@ -131,6 +131,11 @@ func runExec(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Check if parsedArgs is nil (e.g., when --help is used)
+	if parsedArgs == nil {
+		return nil
+	}
+
 	// Set global variables for backward compatibility
 	execGlobal = parsedArgs.global
 	execStay = parsedArgs.stay
@@ -273,26 +278,6 @@ func getGlobalWorktreePathForExec(cfg *models.Config, pattern string) (string, e
 }
 
 func executeInWorktree(worktreePath string, commandArgs []string, stay bool) error {
-	if stay {
-		// Launch a new shell in the worktree directory
-		shell := os.Getenv("SHELL")
-		if shell == "" {
-			shell = "/bin/sh"
-		}
-
-		fmt.Printf("Launching shell in: %s\n", worktreePath)
-		fmt.Println("Type 'exit' to return to the original directory")
-
-		cmd := exec.Command(shell)
-		cmd.Dir = worktreePath
-		cmd.Env = os.Environ()
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-
-		return cmd.Run()
-	}
-
 	// Execute the command in the worktree directory
 	var cmd *exec.Cmd
 	if len(commandArgs) == 1 {
@@ -307,5 +292,28 @@ func executeInWorktree(worktreePath string, commandArgs []string, stay bool) err
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	return cmd.Run()
+	err := cmd.Run()
+
+	if stay {
+		// Launch a new shell in the worktree directory after command execution
+		shell := os.Getenv("SHELL")
+		if shell == "" {
+			shell = "/bin/sh"
+		}
+
+		fmt.Printf("Launching shell in: %s\n", worktreePath)
+		fmt.Println("Type 'exit' to return to the original directory")
+
+		shellCmd := exec.Command(shell)
+		shellCmd.Dir = worktreePath
+		shellCmd.Env = os.Environ()
+		shellCmd.Stdin = os.Stdin
+		shellCmd.Stdout = os.Stdout
+		shellCmd.Stderr = os.Stderr
+
+		// Run the shell regardless of the original command's exit status
+		_ = shellCmd.Run()
+	}
+
+	return err
 }
