@@ -22,7 +22,7 @@ require (
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/gdamore/encoding v1.0.1 // indirect
 	github.com/gdamore/tcell/v2 v2.6.0 // indirect
-	github.com/go-viper/mapstructure/v2 v2.3.0 // indirect
+	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/ktr0731/go-ansisgr v0.1.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
