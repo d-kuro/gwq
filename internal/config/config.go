@@ -109,6 +109,14 @@ func Load() (*models.Config, error) {
 	}
 	cfg.Claude.Queue.QueueDir = expandedPath
 
+	// Optionally expand copy_files paths in repository_settings (if needed)
+	// for i, repoSetting := range cfg.RepositorySettings {
+	//     for j, file := range repoSetting.CopyFiles {
+	//             expanded, _ := utils.ExpandPath(file)
+	//             cfg.RepositorySettings[i].CopyFiles[j] = expanded
+	//     }
+	// }
+
 	return &cfg, nil
 }
 

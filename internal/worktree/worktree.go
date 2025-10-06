@@ -2,6 +2,7 @@
 package worktree
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/d-kuro/gwq/internal/template"
 	"github.com/d-kuro/gwq/internal/url"
+	"github.com/d-kuro/gwq/pkg/command"
+	"github.com/d-kuro/gwq/pkg/filesystem"
 	"github.com/d-kuro/gwq/pkg/models"
 	"github.com/d-kuro/gwq/pkg/utils"
 )
@@ -69,6 +72,39 @@ func (m *Manager) Add(branch string, customPath string, createBranch bool) error
 		return err
 	}
 
+	// --- Begin: Configurable file copy and setup commands ---
+	repoRoot, _ := os.Getwd() // TODO: Replace with actual repo root if available
+	var repoSetting *models.RepositorySetting
+	for i, s := range m.config.RepositorySettings {
+		if s.Repository == repoRoot {
+			repoSetting = &m.config.RepositorySettings[i]
+			break
+		}
+	}
+	if repoSetting != nil {
+		// Copy files
+		copyErrs := CopyFilesWithGlob(filesystem.NewStandardFileSystem(), repoRoot, path, repoSetting.CopyFiles)
+		for _, err := range copyErrs {
+			fmt.Fprintf(os.Stderr, "[gwq] file copy error: %v\n", err)
+		}
+		// Run setup commands
+		outputs, setupErrs := RunSetupCommands(
+			context.Background(),
+			command.NewStandardExecutor(),
+			path,
+			repoSetting.SetupCommands,
+		)
+		for i, out := range outputs {
+			if out != "" {
+				fmt.Fprintf(os.Stderr, "[gwq] setup command output: %s\n", out)
+			}
+			if i < len(setupErrs) && setupErrs[i] != nil {
+				fmt.Fprintf(os.Stderr, "[gwq] setup command error: %v\n", setupErrs[i])
+			}
+		}
+	}
+	// --- End: Configurable file copy and setup commands ---
+
 	return nil
 }
 
@@ -100,6 +136,39 @@ func (m *Manager) AddFromBase(branch string, baseBranch string, customPath strin
 	if err := m.git.AddWorktreeFromBase(path, branch, baseBranch); err != nil {
 		return err
 	}
+
+	// --- Begin: Configurable file copy and setup commands ---
+	repoRoot, _ := os.Getwd() // TODO: Replace with actual repo root if available
+	var repoSetting *models.RepositorySetting
+	for i, s := range m.config.RepositorySettings {
+		if s.Repository == repoRoot {
+			repoSetting = &m.config.RepositorySettings[i]
+			break
+		}
+	}
+	if repoSetting != nil {
+		// Copy files
+		copyErrs := CopyFilesWithGlob(filesystem.NewStandardFileSystem(), repoRoot, path, repoSetting.CopyFiles)
+		for _, err := range copyErrs {
+			fmt.Fprintf(os.Stderr, "[gwq] file copy error: %v\n", err)
+		}
+		// Run setup commands
+		outputs, setupErrs := RunSetupCommands(
+			context.Background(),
+			command.NewStandardExecutor(),
+			path,
+			repoSetting.SetupCommands,
+		)
+		for i, out := range outputs {
+			if out != "" {
+				fmt.Fprintf(os.Stderr, "[gwq] setup command output: %s\n", out)
+			}
+			if i < len(setupErrs) && setupErrs[i] != nil {
+				fmt.Fprintf(os.Stderr, "[gwq] setup command error: %v\n", setupErrs[i])
+			}
+		}
+	}
+	// --- End: Configurable file copy and setup commands ---
 
 	return nil
 }
