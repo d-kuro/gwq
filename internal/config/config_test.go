@@ -15,12 +15,12 @@ func TestRepositorySettingsParsing(t *testing.T) {
 	viper.SetConfigType("toml")
 	configTOML := `
 [[repository_settings]]
-repo = "/tmp/repo1"
+repository = "/tmp/repository1"
 copy_files = ["templates/.env.example", "config/*.json"]
 setup_commands = ["npm install", "echo done"]
 
 [[repository_settings]]
-repo = "/tmp/repo2"
+repository = "/tmp/repository2"
 copy_files = ["foo.txt"]
 setup_commands = ["touch bar"]
 `
@@ -35,23 +35,23 @@ setup_commands = ["touch bar"]
 	if len(cfg.RepositorySettings) != 2 {
 		t.Fatalf("Expected 2 repository_settings, got %d", len(cfg.RepositorySettings))
 	}
-	if cfg.RepositorySettings[0].Repository != "/tmp/repo1" {
-		t.Errorf("First repo mismatch: %s", cfg.RepositorySettings[0].Repository)
+	if cfg.RepositorySettings[0].Repository != "/tmp/repository1" {
+		t.Errorf("First repository mismatch: %s", cfg.RepositorySettings[0].Repository)
 	}
 	if len(cfg.RepositorySettings[0].CopyFiles) != 2 || cfg.RepositorySettings[0].CopyFiles[0] != "templates/.env.example" {
-		t.Errorf("First repo copy_files mismatch: %+v", cfg.RepositorySettings[0].CopyFiles)
+		t.Errorf("First repository copy_files mismatch: %+v", cfg.RepositorySettings[0].CopyFiles)
 	}
 	if len(cfg.RepositorySettings[0].SetupCommands) != 2 || cfg.RepositorySettings[0].SetupCommands[0] != "npm install" {
-		t.Errorf("First repo setup_commands mismatch: %+v", cfg.RepositorySettings[0].SetupCommands)
+		t.Errorf("First repository setup_commands mismatch: %+v", cfg.RepositorySettings[0].SetupCommands)
 	}
-	if cfg.RepositorySettings[1].Repository != "/tmp/repo2" {
-		t.Errorf("Second repo mismatch: %s", cfg.RepositorySettings[1].Repository)
+	if cfg.RepositorySettings[1].Repository != "/tmp/repository2" {
+		t.Errorf("Second repository mismatch: %s", cfg.RepositorySettings[1].Repository)
 	}
 	if len(cfg.RepositorySettings[1].CopyFiles) != 1 || cfg.RepositorySettings[1].CopyFiles[0] != "foo.txt" {
-		t.Errorf("Second repo copy_files mismatch: %+v", cfg.RepositorySettings[1].CopyFiles)
+		t.Errorf("Second repository copy_files mismatch: %+v", cfg.RepositorySettings[1].CopyFiles)
 	}
 	if len(cfg.RepositorySettings[1].SetupCommands) != 1 || cfg.RepositorySettings[1].SetupCommands[0] != "touch bar" {
-		t.Errorf("Second repo setup_commands mismatch: %+v", cfg.RepositorySettings[1].SetupCommands)
+		t.Errorf("Second repository setup_commands mismatch: %+v", cfg.RepositorySettings[1].SetupCommands)
 	}
 }
 

@@ -40,7 +40,7 @@ type Config struct {
 
 // RepositorySetting defines per-repository setup commands and files to copy for worktree creation.
 type RepositorySetting struct {
-	Repository    string   `mapstructure:"repo"`           // Path or pattern for repository
+	Repository    string   `mapstructure:"repository"`     // Path or pattern for repository
 	SetupCommands []string `mapstructure:"setup_commands"` // Commands to run in new worktree
 	CopyFiles     []string `mapstructure:"copy_files"`     // Files/globs to copy into new worktree
 }
