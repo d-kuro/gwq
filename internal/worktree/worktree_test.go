@@ -466,13 +466,12 @@ func TestGenerateWorktreePath(t *testing.T) {
 func TestManagerAdd_ConfigurableSetupIntegration(t *testing.T) {
 	repoDir := t.TempDir()
 	worktreeDir := t.TempDir()
-	// Create a file to be copied
+
 	srcFile := filepath.Join(repoDir, "copyme.txt")
 	if err := os.WriteFile(srcFile, []byte("hello"), 0644); err != nil {
 		t.Fatalf("failed to write src file: %v", err)
 	}
 
-	// Set up config with repository_settings for repoDir
 	cfg := &models.Config{
 		Worktree: models.WorktreeConfig{
 			BaseDir:   worktreeDir,
@@ -487,7 +486,6 @@ func TestManagerAdd_ConfigurableSetupIntegration(t *testing.T) {
 		},
 	}
 
-	// Change working directory to repoDir for the test
 	oldwd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("failed to get current wd: %v", err)
@@ -504,10 +502,9 @@ func TestManagerAdd_ConfigurableSetupIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
-	// Check file was copied
+
 	copied := filepath.Join(worktreeDir, "wt1", "copyme.txt")
 	if _, err := os.Stat(copied); err != nil {
 		t.Errorf("expected file to be copied: %v", err)
 	}
-	// (Optional) Check for setup command output/logs if needed
 }

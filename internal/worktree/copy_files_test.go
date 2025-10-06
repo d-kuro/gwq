@@ -36,13 +36,15 @@ func TestCopyFilesWithGlob(t *testing.T) {
 		t.Errorf("expected no errors, got %v", errs)
 	}
 
-	check := func(rel string) {
+	expectedFiles := []string{
+		"templates/.env.example",
+		"config/a.json",
+		"config/b.json",
+	}
+	for _, rel := range expectedFiles {
 		path := filepath.Join(dstDir, rel)
 		if _, err := os.Stat(path); err != nil {
 			t.Errorf("expected %s to be copied, err: %v", rel, err)
 		}
 	}
-	check("templates/.env.example")
-	check("config/a.json")
-	check("config/b.json")
 }

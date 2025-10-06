@@ -19,6 +19,7 @@ func CopyFilesWithGlob(fs filesystem.FileSystemInterface, srcRoot, dstRoot strin
 			errs = append(errs, err)
 			continue
 		}
+
 		for _, srcPath := range matches {
 			// Only copy files (not directories)
 			info, err := fs.Stat(srcPath)
@@ -29,27 +30,32 @@ func CopyFilesWithGlob(fs filesystem.FileSystemInterface, srcRoot, dstRoot strin
 			if info.IsDir() {
 				continue
 			}
+
 			relPath, err := filepath.Rel(srcRoot, srcPath)
 			if err != nil {
 				errs = append(errs, err)
 				continue
 			}
+
 			dstPath := filepath.Join(dstRoot, relPath)
 			if err := fs.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
 				errs = append(errs, err)
 				continue
 			}
+
 			srcFile, err := fs.Open(srcPath)
 			if err != nil {
 				errs = append(errs, err)
 				continue
 			}
+
 			dstFile, err := fs.Create(dstPath)
 			if err != nil {
 				srcFile.Close()
 				errs = append(errs, err)
 				continue
 			}
+
 			_, err = io.Copy(dstFile, srcFile)
 			srcFile.Close()
 			dstFile.Close()

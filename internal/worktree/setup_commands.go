@@ -16,10 +16,12 @@ func RunSetupCommands(ctx context.Context, executor interface {
 		if cmd == "" {
 			continue
 		}
+
 		parts := strings.Fields(cmd)
 		if len(parts) == 0 {
 			continue
 		}
+
 		name := parts[0]
 		args := parts[1:]
 		output, err := executor.ExecuteInDirWithOutput(ctx, dir, name, args...)

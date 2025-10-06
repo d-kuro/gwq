@@ -1,35 +1,12 @@
 package worktree
 
 import (
-	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/d-kuro/gwq/pkg/models"
 )
-
-type testExecutor struct {
-	calls   []string
-	outputs []string
-	errs    []error
-}
-
-func (e *testExecutor) ExecuteInDirWithOutput(ctx context.Context, dir, name string, args ...string) (string, error) {
-	e.calls = append(e.calls, filepath.Join(dir, name+" "+strings.Join(args, " ")))
-	if len(e.outputs) > 0 {
-		out := e.outputs[0]
-		e.outputs = e.outputs[1:]
-		var err error
-		if len(e.errs) > 0 {
-			err = e.errs[0]
-			e.errs = e.errs[1:]
-		}
-		return out, err
-	}
-	return "", nil
-}
 
 func TestManagerAdd_Integration(t *testing.T) {
 	repoDir := t.TempDir()
@@ -72,10 +49,9 @@ func TestManagerAdd_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
-	// Check file was copied
+
 	copied := filepath.Join(worktreeDir, "wt1", "copyme.txt")
 	if _, err := os.Stat(copied); err != nil {
 		t.Errorf("expected file to be copied: %v", err)
 	}
-	// (Optional) Check for setup command output/logs if needed
 }
