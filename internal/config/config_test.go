@@ -3,11 +3,57 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/d-kuro/gwq/pkg/models"
 	"github.com/spf13/viper"
 )
+
+func TestRepositorySettingsParsing(t *testing.T) {
+	viper.Reset()
+	viper.SetConfigType("toml")
+	configTOML := `
+[[repository_settings]]
+repository = "/tmp/repository1"
+copy_files = ["templates/.env.example", "config/*.json"]
+setup_commands = ["npm install", "echo done"]
+
+[[repository_settings]]
+repository = "/tmp/repository2"
+copy_files = ["foo.txt"]
+setup_commands = ["touch bar"]
+`
+	err := viper.ReadConfig(strings.NewReader(configTOML))
+	if err != nil {
+		t.Fatalf("Failed to read config: %v", err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	if len(cfg.RepositorySettings) != 2 {
+		t.Fatalf("Expected 2 repository_settings, got %d", len(cfg.RepositorySettings))
+	}
+	if cfg.RepositorySettings[0].Repository != "/tmp/repository1" {
+		t.Errorf("First repository mismatch: %s", cfg.RepositorySettings[0].Repository)
+	}
+	if len(cfg.RepositorySettings[0].CopyFiles) != 2 || cfg.RepositorySettings[0].CopyFiles[0] != "templates/.env.example" {
+		t.Errorf("First repository copy_files mismatch: %+v", cfg.RepositorySettings[0].CopyFiles)
+	}
+	if len(cfg.RepositorySettings[0].SetupCommands) != 2 || cfg.RepositorySettings[0].SetupCommands[0] != "npm install" {
+		t.Errorf("First repository setup_commands mismatch: %+v", cfg.RepositorySettings[0].SetupCommands)
+	}
+	if cfg.RepositorySettings[1].Repository != "/tmp/repository2" {
+		t.Errorf("Second repository mismatch: %s", cfg.RepositorySettings[1].Repository)
+	}
+	if len(cfg.RepositorySettings[1].CopyFiles) != 1 || cfg.RepositorySettings[1].CopyFiles[0] != "foo.txt" {
+		t.Errorf("Second repository copy_files mismatch: %+v", cfg.RepositorySettings[1].CopyFiles)
+	}
+	if len(cfg.RepositorySettings[1].SetupCommands) != 1 || cfg.RepositorySettings[1].SetupCommands[0] != "touch bar" {
+		t.Errorf("Second repository setup_commands mismatch: %+v", cfg.RepositorySettings[1].SetupCommands)
+	}
+}
 
 func TestGetConfigDir(t *testing.T) {
 	// Test without XDG_CONFIG_HOME

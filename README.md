@@ -437,6 +437,7 @@ gwq config set <TAB>   # Shows configuration keys
 
 ## Configuration
 
+
 Configuration file location: `~/.config/gwq/config.toml`
 
 ```toml
@@ -492,7 +493,35 @@ log_retention_days = 30
 max_log_size_mb = 100
 # Auto cleanup old logs
 auto_cleanup = true
+
+[[repository_settings]]
+# Path or pattern for the repository (absolute or glob)
+repository = "~/src/myproject"
+# List of files or globs to copy from the repo root to the new worktree
+copy_files = ["templates/.env.example"]
+# List of setup commands to run in the new worktree directory
+setup_commands = ["npm install"]
+
+[[repository_settings]]
+repository = "~/src/anotherproject"
+copy_files = ["config/*.json"]
+setup_commands = ["pip install -r requirements.txt"]
 ```
+
+### Per-Repository Setup: Copy Files & Run Commands
+
+You can configure `gwq` to automatically copy files and run setup commands when creating a new worktree, on a per-repository basis. This is done using the `repository_settings` array in your config file. Each entry matches a repository and specifies files to copy (with glob support) and commands to run in the new worktree directory. Errors are logged but do not abort worktree creation.
+
+**Example:**
+
+```toml
+[[repository_settings]]
+repository = "~/src/myproject"
+copy_files = ["templates/.env.example"]
+setup_commands = ["npm install"]
+```
+
+When you create a new worktree for `~/src/myproject`, `gwq` will copy `templates/.env.example` from the repo root into the new worktree and run `npm install` in the new worktree directory.
 
 ## Advanced Usage
 
