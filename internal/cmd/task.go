@@ -16,10 +16,7 @@ This command provides a task queue system for Claude Code that enables:
 - Integration with existing gwq worktree management
 
 All commands should be executed from the git repository root directory.`,
-	Example: `  # Add a new Claude task
-  gwq task add claude -b feature/auth "Authentication system implementation" -p 75
-
-  # List all tasks
+	Example: `  # List all tasks
   gwq task list
 
   # View task execution logs
