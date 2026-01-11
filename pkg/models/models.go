@@ -30,11 +30,19 @@ type CommitInfo struct {
 
 // Config represents the application configuration.
 type Config struct {
-	Worktree WorktreeConfig `mapstructure:"worktree"` // Worktree-related configuration
-	Finder   FinderConfig   `mapstructure:"finder"`   // Fuzzy finder configuration
-	UI       UIConfig       `mapstructure:"ui"`       // UI-related configuration
-	Naming   NamingConfig   `mapstructure:"naming"`   // Naming and template configuration
-	Claude   ClaudeConfig   `mapstructure:"claude"`   // Claude Code task queue configuration
+	Worktree           WorktreeConfig      `mapstructure:"worktree"`            // Worktree-related configuration
+	Finder             FinderConfig        `mapstructure:"finder"`              // Fuzzy finder configuration
+	UI                 UIConfig            `mapstructure:"ui"`                  // UI-related configuration
+	Naming             NamingConfig        `mapstructure:"naming"`              // Naming and template configuration
+	Claude             ClaudeConfig        `mapstructure:"claude"`              // Claude Code task queue configuration
+	RepositorySettings []RepositorySetting `mapstructure:"repository_settings"` // Per-repository setup/copy overrides
+}
+
+// RepositorySetting defines per-repository setup commands and files to copy for worktree creation.
+type RepositorySetting struct {
+	Repository    string   `mapstructure:"repository"`     // Path or pattern for repository
+	SetupCommands []string `mapstructure:"setup_commands"` // Commands to run in new worktree
+	CopyFiles     []string `mapstructure:"copy_files"`     // Files/globs to copy into new worktree
 }
 
 // WorktreeConfig contains worktree-specific configuration options.
