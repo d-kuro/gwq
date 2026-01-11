@@ -7,7 +7,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/ktr0731/go-fuzzyfinder v0.9.0
 	github.com/mattn/go-runewidth v0.0.19
-	github.com/spf13/cobra v1.10.1
+	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	gopkg.in/yaml.v3 v3.0.1
 )
