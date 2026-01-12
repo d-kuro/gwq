@@ -322,7 +322,11 @@ func TestStandardFileSystem_WorkingDirectory(t *testing.T) {
 		t.Fatalf("Getwd() error = %v", err)
 	}
 
-	tmpDir := t.TempDir()
+	// Resolve symlinks to handle macOS /var -> /private/var
+	tmpDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("EvalSymlinks() error = %v", err)
+	}
 
 	// Change directory
 	err = fs.Chdir(tmpDir)

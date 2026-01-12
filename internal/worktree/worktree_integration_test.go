@@ -9,8 +9,14 @@ import (
 )
 
 func TestManagerAdd_Integration(t *testing.T) {
-	repoDir := t.TempDir()
-	worktreeDir := t.TempDir()
+	repoDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to eval symlinks: %v", err)
+	}
+	worktreeDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to eval symlinks: %v", err)
+	}
 	// Create a file to be copied
 	srcFile := filepath.Join(repoDir, "copyme.txt")
 	if err := os.WriteFile(srcFile, []byte("hello"), 0644); err != nil {
@@ -40,7 +46,7 @@ func TestManagerAdd_Integration(t *testing.T) {
 	if err := os.Chdir(repoDir); err != nil {
 		t.Fatalf("failed to chdir: %v", err)
 	}
-	defer os.Chdir(oldwd)
+	defer func() { _ = os.Chdir(oldwd) }()
 
 	mockG := &mockGit{}
 	m := New(mockG, cfg)
