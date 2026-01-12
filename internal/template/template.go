@@ -44,7 +44,7 @@ func New(templateStr string, sanitizeChars map[string]string) (*Processor, error
 func (p *Processor) GeneratePath(baseDir string, repoInfo *url.RepositoryInfo, branch string) (string, error) {
 	// Sanitize branch name only
 	sanitizedBranch := p.sanitizeBranch(branch)
-	
+
 	// Create template data
 	data := &TemplateData{
 		Host:       repoInfo.Host,

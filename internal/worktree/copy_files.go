@@ -51,14 +51,16 @@ func CopyFilesWithGlob(fs filesystem.FileSystemInterface, srcRoot, dstRoot strin
 
 			dstFile, err := fs.Create(dstPath)
 			if err != nil {
-				srcFile.Close()
+				_ = srcFile.Close()
 				errs = append(errs, err)
 				continue
 			}
 
 			_, err = io.Copy(dstFile, srcFile)
-			srcFile.Close()
-			dstFile.Close()
+			_ = srcFile.Close()
+			if closeErr := dstFile.Close(); closeErr != nil {
+				errs = append(errs, closeErr)
+			}
 			if err != nil {
 				errs = append(errs, err)
 			}

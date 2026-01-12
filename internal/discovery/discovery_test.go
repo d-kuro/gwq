@@ -341,7 +341,6 @@ func TestFilterGlobalWorktrees_EmptyPattern(t *testing.T) {
 	}
 }
 
-
 // Benchmark tests
 func BenchmarkDiscoverGlobalWorktrees(b *testing.B) {
 	// Create a temporary directory with multiple worktrees
