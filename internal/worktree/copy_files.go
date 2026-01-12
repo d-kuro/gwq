@@ -2,8 +2,10 @@ package worktree
 
 import (
 	"io"
+	"os"
 	"path/filepath"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/d-kuro/gwq/pkg/filesystem"
 )
 
@@ -12,15 +14,17 @@ import (
 func CopyFilesWithGlob(fs filesystem.FileSystemInterface, srcRoot, dstRoot string, patterns []string) []error {
 	var errs []error
 	for _, pattern := range patterns {
-		// Expand pattern relative to srcRoot
-		globPattern := filepath.Join(srcRoot, pattern)
-		matches, err := filepath.Glob(globPattern)
+		// matches are relative paths from srcRoot
+		matches, err := doublestar.Glob(os.DirFS(srcRoot), pattern)
 		if err != nil {
 			errs = append(errs, err)
 			continue
 		}
 
-		for _, srcPath := range matches {
+		for _, relPath := range matches {
+			// matches are relative paths from srcRoot
+			srcPath := filepath.Join(srcRoot, relPath)
+
 			// Only copy files (not directories)
 			info, err := fs.Stat(srcPath)
 			if err != nil {
@@ -28,12 +32,6 @@ func CopyFilesWithGlob(fs filesystem.FileSystemInterface, srcRoot, dstRoot strin
 				continue
 			}
 			if info.IsDir() {
-				continue
-			}
-
-			relPath, err := filepath.Rel(srcRoot, srcPath)
-			if err != nil {
-				errs = append(errs, err)
 				continue
 			}
 

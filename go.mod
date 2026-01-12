@@ -3,6 +3,7 @@ module github.com/d-kuro/gwq
 go 1.24.2
 
 require (
+	github.com/bmatcuk/doublestar/v4 v4.9.2
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/ktr0731/go-fuzzyfinder v0.9.0
 	github.com/spf13/cobra v1.10.2

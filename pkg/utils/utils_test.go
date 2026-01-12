@@ -137,6 +137,134 @@ func TestSanitizeForFilesystem(t *testing.T) {
 	}
 }
 
+func TestMatchPath(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		path    string
+		want    bool
+	}{
+		{
+			name:    "exact match",
+			pattern: "/Users/test/src/myproject",
+			path:    "/Users/test/src/myproject",
+			want:    true,
+		},
+		{
+			name:    "exact match - no match",
+			pattern: "/Users/test/src/myproject",
+			path:    "/Users/test/src/other",
+			want:    false,
+		},
+		{
+			name:    "wildcard single segment",
+			pattern: "/Users/test/src/*",
+			path:    "/Users/test/src/myproject",
+			want:    true,
+		},
+		{
+			name:    "wildcard single segment - no match nested",
+			pattern: "/Users/test/src/*",
+			path:    "/Users/test/src/github.com/user/repo",
+			want:    false,
+		},
+		{
+			name:    "wildcard middle segment",
+			pattern: "/Users/*/src/myproject",
+			path:    "/Users/test/src/myproject",
+			want:    true,
+		},
+		{
+			name:    "wildcard middle segment - different user",
+			pattern: "/Users/*/src/myproject",
+			path:    "/Users/other/src/myproject",
+			want:    true,
+		},
+		{
+			name:    "question mark single char",
+			pattern: "/Users/test/src/project?",
+			path:    "/Users/test/src/project1",
+			want:    true,
+		},
+		{
+			name:    "question mark - no match multiple chars",
+			pattern: "/Users/test/src/project?",
+			path:    "/Users/test/src/project12",
+			want:    false,
+		},
+		{
+			name:    "character class",
+			pattern: "/Users/test/src/project[123]",
+			path:    "/Users/test/src/project2",
+			want:    true,
+		},
+		{
+			name:    "character class - no match",
+			pattern: "/Users/test/src/project[123]",
+			path:    "/Users/test/src/project4",
+			want:    false,
+		},
+		{
+			name:    "empty pattern and path",
+			pattern: "",
+			path:    "",
+			want:    true,
+		},
+		{
+			name:    "empty pattern - no match",
+			pattern: "",
+			path:    "/some/path",
+			want:    false,
+		},
+		// ** recursive matching tests
+		{
+			name:    "double star - match nested path",
+			pattern: "/Users/test/src/**",
+			path:    "/Users/test/src/github.com/user/repo",
+			want:    true,
+		},
+		{
+			name:    "double star - match direct child",
+			pattern: "/Users/test/src/**",
+			path:    "/Users/test/src/myproject",
+			want:    true,
+		},
+		{
+			name:    "double star - match deeply nested",
+			pattern: "/Users/test/src/**",
+			path:    "/Users/test/src/a/b/c/d/e/f",
+			want:    true,
+		},
+		{
+			name:    "double star - no match different prefix",
+			pattern: "/Users/test/src/**",
+			path:    "/Users/other/src/myproject",
+			want:    false,
+		},
+		{
+			name:    "double star in middle",
+			pattern: "/Users/**/repo",
+			path:    "/Users/test/src/github.com/user/repo",
+			want:    true,
+		},
+		{
+			name:    "double star in middle - direct",
+			pattern: "/Users/**/repo",
+			path:    "/Users/repo",
+			want:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := MatchPath(tt.pattern, tt.path)
+			if got != tt.want {
+				t.Errorf("MatchPath(%q, %q) = %v, want %v", tt.pattern, tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestEscapeForShell(t *testing.T) {
 	tests := []struct {
 		name     string
