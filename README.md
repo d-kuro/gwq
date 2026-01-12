@@ -83,8 +83,6 @@ gwq remove feature/old-ui
 - **Home Directory Display**: Option to display paths with `~` instead of full home directory path
 - **Worktree Status Dashboard**: Monitor all worktrees' git status, changes, and activity at a glance
 - **Tmux Session Management**: Run and manage long-running processes in persistent tmux sessions
-- **AI Development Automation**: Structured task queue system for automated development with Claude Code
-- **Task Management**: Priority-based task scheduling with dependency resolution and resource management
 
 ## Global Worktree Management
 
@@ -344,44 +342,6 @@ This feature is particularly useful for:
 - **AI Agent Tasks**: Let AI agents run long tasks without blocking your terminal
 - **Remote Work**: Sessions persist even if SSH connection drops
 
-### `gwq task`
-
-Manage Claude Code tasks and automated development
-
-```bash
-# Add a new Claude task with new branch/worktree
-gwq task add claude -b feature/auth "Authentication system" -p 75
-
-# Add a task using existing worktree
-gwq task add claude -w existing-feature "Continue development" -p 60
-
-# List all tasks
-gwq task list
-
-# View task-specific execution logs
-gwq task logs                           # Interactive task log selection
-gwq task logs exec-a1b2c3               # Show logs for specific execution
-gwq task logs --status running          # Filter task logs by status
-gwq task logs --date 2024-01-15         # Filter by date
-
-# Worker management
-gwq task worker start --parallel 2
-gwq task worker status
-gwq task worker stop
-
-# View task details
-gwq task show task-id
-```
-
-This feature enables:
-- **Structured Task Management**: Create and manage Claude Code tasks with dependency resolution
-- **Priority-based Scheduling**: Organize tasks by priority and dependencies
-- **Resource Management**: Control parallel execution and resource allocation
-- **Comprehensive Logging**: All task executions are logged in JSON format
-- **Session Management**: Persistent tmux sessions for long-running tasks
-- **Interactive Monitoring**: Browse and review task execution history
-
-
 ### `gwq version`
 
 Display version information
@@ -474,26 +434,6 @@ tmux_command = "tmux"
 # History limit for tmux sessions
 history_limit = 50000
 
-[claude]
-# Claude Code executable
-executable = "claude"
-# Timeout for Claude execution
-timeout = "30m"
-# Maximum parallel Claude executions
-max_parallel = 3
-# Configuration directory
-config_dir = "~/.config/gwq/claude"
-
-[claude.task]
-# Task queue configuration
-queue_dir = "~/.config/gwq/claude/queue"
-# Log retention in days
-log_retention_days = 30
-# Maximum log size in MB
-max_log_size_mb = 100
-# Auto cleanup old logs
-auto_cleanup = true
-
 [[repository_settings]]
 # Path or pattern for the repository (absolute or glob)
 repository = "~/src/myproject"
@@ -576,21 +516,6 @@ gwq tmux list --watch
 
 # Attach to see AI output
 gwq tmux attach ai-migration-auth
-
-# Method 4: Using gwq task for structured development
-# Create structured tasks for automated development
-gwq task add claude -b feature/auth "Implement authentication system" -p 80
-gwq task add claude -b feature/tests "Create comprehensive test suite" \
-  --verify "make test" --verify "make coverage"
-
-# Start worker to process tasks
-gwq task worker start --parallel 2
-
-# Monitor task executions
-gwq task logs --status running  # See active task sessions
-
-# Review completed task work
-gwq task logs  # Interactive selection of past executions
 ```
 
 ### Batch Operations
