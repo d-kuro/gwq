@@ -435,7 +435,7 @@ tmux_command = "tmux"
 history_limit = 50000
 
 [[repository_settings]]
-# Path or pattern for the repository (absolute or glob)
+# Path or pattern for the repository (absolute or glob, supports ** for recursive matching)
 repository = "~/src/myproject"
 # List of files or globs to copy from the repo root to the new worktree
 copy_files = ["templates/.env.example"]

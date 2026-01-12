@@ -77,7 +77,7 @@ func (m *Manager) Add(branch string, customPath string, createBranch bool) error
 	var repoSetting *models.RepositorySetting
 
 	for i, s := range m.config.RepositorySettings {
-		if s.Repository == repoRoot {
+		if utils.MatchPath(s.Repository, repoRoot) {
 			repoSetting = &m.config.RepositorySettings[i]
 			break
 		}
@@ -141,7 +141,7 @@ func (m *Manager) AddFromBase(branch string, baseBranch string, customPath strin
 	repoRoot, _ := os.Getwd()
 	var repoSetting *models.RepositorySetting
 	for i, s := range m.config.RepositorySettings {
-		if s.Repository == repoRoot {
+		if utils.MatchPath(s.Repository, repoRoot) {
 			repoSetting = &m.config.RepositorySettings[i]
 			break
 		}

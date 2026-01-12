@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 // Min returns the minimum of two ordered values.
@@ -165,6 +167,28 @@ func GenerateUUID() string {
 	}
 	return fmt.Sprintf("%x-%x-%x-%x-%x",
 		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// MatchPath checks if a path matches a pattern using doublestar.Match.
+// Supports:
+//   - * (any sequence of non-separator characters)
+//   - ** (any sequence of characters including separators, for recursive matching)
+//   - ? (any single non-separator character)
+//   - [abc] (character class)
+//
+// If the pattern doesn't contain glob characters, it falls back to exact match.
+func MatchPath(pattern, path string) bool {
+	// If no glob characters, use exact match
+	if !strings.ContainsAny(pattern, "*?[") {
+		return pattern == path
+	}
+
+	matched, err := doublestar.Match(pattern, path)
+	if err != nil {
+		// Invalid pattern, fall back to exact match
+		return pattern == path
+	}
+	return matched
 }
 
 // SanitizeForFilesystem converts strings to filesystem-safe names by replacing problematic characters.

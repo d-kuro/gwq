@@ -109,6 +109,15 @@ func Load() (*models.Config, error) {
 	}
 	cfg.Claude.Queue.QueueDir = expandedPath
 
+	// Expand repository settings paths
+	for i := range cfg.RepositorySettings {
+		expandedPath, err = utils.ExpandPath(cfg.RepositorySettings[i].Repository)
+		if err != nil {
+			return nil, fmt.Errorf("failed to expand repository setting path: %w", err)
+		}
+		cfg.RepositorySettings[i].Repository = expandedPath
+	}
+
 	return &cfg, nil
 }
 
@@ -153,6 +162,14 @@ func Get() *models.Config {
 		expandedPath, err = utils.ExpandPath(defaultCfg.Claude.Queue.QueueDir)
 		if err == nil {
 			defaultCfg.Claude.Queue.QueueDir = expandedPath
+		}
+
+		// Expand repository settings paths
+		for i := range defaultCfg.RepositorySettings {
+			expandedPath, err = utils.ExpandPath(defaultCfg.RepositorySettings[i].Repository)
+			if err == nil {
+				defaultCfg.RepositorySettings[i].Repository = expandedPath
+			}
 		}
 
 		return &defaultCfg
