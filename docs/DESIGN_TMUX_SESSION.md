@@ -21,7 +21,7 @@ gwq-{context}-{identifier}-{timestamp}
 
 Examples:
 - `gwq-task-abc123-20240115103045`
-- `gwq-claude-def456-20240115110230`
+- `gwq-agent-def456-20240115110230`
 - `gwq-test-feature-auth-20240115120000`
 
 ## Architecture
@@ -37,7 +37,7 @@ type SessionManager struct {
 type Session struct {
     ID           string            `json:"id"`
     SessionName  string            `json:"session_name"`
-    Context      string            `json:"context"`     // e.g., "task", "claude", "test"
+    Context      string            `json:"context"`     // e.g., "task", "agent", "test"
     Identifier   string            `json:"identifier"`  // e.g., task ID, branch name
     WorkingDir   string            `json:"working_dir"`
     Command      string            `json:"command"`
@@ -148,7 +148,7 @@ gwq tmux list
 
 # Output:
 # CONTEXT     IDENTIFIER      STATUS     DURATION   COMMAND
-# ● claude    auth-impl       running    1h 25m     claude --task "impl auth"
+# ● agent     auth-impl       running    1h 25m     agent --task "impl auth"
 #   task      api-dev         running    45m        make test
 #   test      feature-auth    completed  2h 15m     go test -v ./...
 

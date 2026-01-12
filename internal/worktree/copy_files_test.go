@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/d-kuro/gwq/pkg/filesystem"
+	"github.com/d-kuro/gwq/internal/filesystem"
 )
 
 func TestCopyFilesWithGlob(t *testing.T) {

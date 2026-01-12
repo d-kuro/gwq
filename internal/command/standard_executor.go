@@ -82,20 +82,23 @@ func (e *StandardExecutor) ExecuteWithEnvInDir(ctx context.Context, env []string
 	return cmd.Run()
 }
 
-// ExecuteWithOptions runs a command with comprehensive options
-func (e *StandardExecutor) ExecuteWithOptions(ctx context.Context, name string, args []string, opts *CommandOptions) error {
-	cmd := exec.CommandContext(ctx, name, args...)
+// applyOptions applies CommandOptions to an exec.Cmd.
+// If captureOutput is true, stdout and stderr from opts are ignored (for output capture).
+func applyOptions(cmd *exec.Cmd, opts *CommandOptions, captureOutput bool) {
+	if opts == nil {
+		return
+	}
 
-	if opts != nil {
-		if opts.WorkingDir != "" {
-			cmd.Dir = opts.WorkingDir
-		}
-		if opts.Environment != nil {
-			cmd.Env = opts.Environment
-		}
-		if opts.Stdin != nil {
-			cmd.Stdin = opts.Stdin
-		}
+	if opts.WorkingDir != "" {
+		cmd.Dir = opts.WorkingDir
+	}
+	if opts.Environment != nil {
+		cmd.Env = opts.Environment
+	}
+	if opts.Stdin != nil {
+		cmd.Stdin = opts.Stdin
+	}
+	if !captureOutput {
 		if opts.Stdout != nil {
 			cmd.Stdout = opts.Stdout
 		}
@@ -103,7 +106,12 @@ func (e *StandardExecutor) ExecuteWithOptions(ctx context.Context, name string, 
 			cmd.Stderr = opts.Stderr
 		}
 	}
+}
 
+// ExecuteWithOptions runs a command with comprehensive options
+func (e *StandardExecutor) ExecuteWithOptions(ctx context.Context, name string, args []string, opts *CommandOptions) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	applyOptions(cmd, opts, false)
 	return cmd.Run()
 }
 
@@ -115,18 +123,7 @@ func (e *StandardExecutor) ExecuteWithOptionsAndOutput(ctx context.Context, name
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if opts != nil {
-		if opts.WorkingDir != "" {
-			cmd.Dir = opts.WorkingDir
-		}
-		if opts.Environment != nil {
-			cmd.Env = opts.Environment
-		}
-		if opts.Stdin != nil {
-			cmd.Stdin = opts.Stdin
-		}
-		// Don't override stdout/stderr if we need to capture output
-	}
+	applyOptions(cmd, opts, true)
 
 	err := cmd.Run()
 	if err != nil {

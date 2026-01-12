@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/d-kuro/gwq/internal/config"
@@ -49,8 +48,7 @@ func runTmuxAttach(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	dataDir := filepath.Join(cfg.Worktree.BaseDir, ".gwq")
-	sessionManager := tmux.NewSessionManager(nil, dataDir)
+	sessionManager := tmux.NewSessionManager(nil)
 
 	sessions, err := sessionManager.ListSessions()
 	if err != nil {

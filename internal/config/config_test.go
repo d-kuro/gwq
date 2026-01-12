@@ -55,6 +55,41 @@ setup_commands = ["touch bar"]
 	}
 }
 
+func TestLoadIgnoresLegacyClaudeSettings(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(func() {
+		viper.Reset()
+	})
+	viper.SetConfigType("toml")
+	configTOML := `
+[worktree]
+basedir = "/tmp/worktrees"
+auto_mkdir = true
+
+[claude]
+executable = "claude"
+config_dir = "~/.config/gwq/claude"
+max_parallel = 4
+
+[claude.queue]
+queue_dir = "~/.config/gwq/claude/queue"
+`
+	if err := viper.ReadConfig(strings.NewReader(configTOML)); err != nil {
+		t.Fatalf("Failed to read config: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Worktree.BaseDir != "/tmp/worktrees" {
+		t.Errorf("Worktree.BaseDir = %s, want /tmp/worktrees", cfg.Worktree.BaseDir)
+	}
+	if !cfg.Worktree.AutoMkdir {
+		t.Error("Worktree.AutoMkdir should be true")
+	}
+}
+
 func TestGetConfigDir(t *testing.T) {
 	// Test without XDG_CONFIG_HOME
 	t.Run("WithoutXDGConfigHome", func(t *testing.T) {

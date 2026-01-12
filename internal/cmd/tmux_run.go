@@ -93,8 +93,7 @@ func runTmuxRun(cmd *cobra.Command, args []string) error {
 		finalCommand = fmt.Sprintf("(%s); tmux kill-session -t $TMUX_PANE", command)
 	}
 
-	dataDir := filepath.Join(cfg.Worktree.BaseDir, ".gwq")
-	sessionManager := tmux.NewSessionManager(nil, dataDir)
+	sessionManager := tmux.NewSessionManager(nil)
 
 	opts := tmux.SessionOptions{
 		Context:    context,

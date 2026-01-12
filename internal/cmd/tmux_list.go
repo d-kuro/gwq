@@ -4,15 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/d-kuro/gwq/internal/config"
 	"github.com/d-kuro/gwq/internal/table"
 	"github.com/d-kuro/gwq/internal/tmux"
 	"github.com/d-kuro/gwq/internal/ui"
+	"github.com/d-kuro/gwq/internal/utils"
 	"github.com/d-kuro/gwq/pkg/models"
-	"github.com/d-kuro/gwq/pkg/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -59,8 +58,7 @@ func runTmuxList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	dataDir := filepath.Join(cfg.Worktree.BaseDir, ".gwq")
-	sessionManager := tmux.NewSessionManager(nil, dataDir)
+	sessionManager := tmux.NewSessionManager(nil)
 
 	if tmuxListWatch {
 		return runTmuxListWatch(sessionManager, cfg)

@@ -8,12 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/d-kuro/gwq/internal/command"
+	"github.com/d-kuro/gwq/internal/filesystem"
 	"github.com/d-kuro/gwq/internal/template"
 	"github.com/d-kuro/gwq/internal/url"
-	"github.com/d-kuro/gwq/pkg/command"
-	"github.com/d-kuro/gwq/pkg/filesystem"
+	"github.com/d-kuro/gwq/internal/utils"
 	"github.com/d-kuro/gwq/pkg/models"
-	"github.com/d-kuro/gwq/pkg/utils"
 )
 
 // GitInterface defines the git operations used by Manager.
