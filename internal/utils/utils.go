@@ -68,18 +68,16 @@ func ExpandPath(path string) (string, error) {
 	path = os.ExpandEnv(path)
 
 	// Step 2: Expand tilde (~)
-	if strings.HasPrefix(path, "~/") {
+	if path == "~" || strings.HasPrefix(path, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("failed to get home directory: %w", err)
 		}
-		path = filepath.Join(home, path[2:])
-	} else if path == "~" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get home directory: %w", err)
+		if path == "~" {
+			path = home
+		} else {
+			path = filepath.Join(home, path[2:])
 		}
-		path = home
 	}
 
 	// Step 3: Convert to absolute path if relative

@@ -73,21 +73,28 @@ func Load() (*models.Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
+	if err := expandConfigPaths(&cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+// expandConfigPaths expands all path fields in the configuration.
+func expandConfigPaths(cfg *models.Config) error {
 	expandedPath, err := utils.ExpandPath(cfg.Worktree.BaseDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to expand worktree base dir: %w", err)
+		return fmt.Errorf("failed to expand worktree base dir: %w", err)
 	}
 	cfg.Worktree.BaseDir = expandedPath
 
-	// Expand repository settings paths
 	for i := range cfg.RepositorySettings {
 		expandedPath, err = utils.ExpandPath(cfg.RepositorySettings[i].Repository)
 		if err != nil {
-			return nil, fmt.Errorf("failed to expand repository setting path: %w", err)
+			return fmt.Errorf("failed to expand repository setting path: %w", err)
 		}
 		cfg.RepositorySettings[i].Repository = expandedPath
 	}
-	return &cfg, nil
+	return nil
 }
 
 // Set sets a configuration value by key.
@@ -113,23 +120,11 @@ func Get() *models.Config {
 		// Initialize with viper defaults if config cannot be loaded
 		var defaultCfg models.Config
 		if err := viper.Unmarshal(&defaultCfg); err != nil {
-			// Fallback to empty config if unmarshal fails
 			return &models.Config{}
 		}
 
-		// Apply path expansions to defaults
-		expandedPath, err := utils.ExpandPath(defaultCfg.Worktree.BaseDir)
-		if err == nil {
-			defaultCfg.Worktree.BaseDir = expandedPath
-		}
-
-		// Expand repository settings paths
-		for i := range defaultCfg.RepositorySettings {
-			expandedPath, err = utils.ExpandPath(defaultCfg.RepositorySettings[i].Repository)
-			if err == nil {
-				defaultCfg.RepositorySettings[i].Repository = expandedPath
-			}
-		}
+		// Apply path expansions to defaults, ignoring errors
+		_ = expandConfigPaths(&defaultCfg)
 		return &defaultCfg
 	}
 	return cfg
