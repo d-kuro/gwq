@@ -34,7 +34,6 @@ type Config struct {
 	Finder             FinderConfig        `mapstructure:"finder"`              // Fuzzy finder configuration
 	UI                 UIConfig            `mapstructure:"ui"`                  // UI-related configuration
 	Naming             NamingConfig        `mapstructure:"naming"`              // Naming and template configuration
-	Claude             ClaudeConfig        `mapstructure:"claude"`              // Claude Code task queue configuration
 	RepositorySettings []RepositorySetting `mapstructure:"repository_settings"` // Per-repository setup/copy overrides
 }
 
@@ -115,51 +114,6 @@ type ProcessInfo struct {
 	PID     int    `json:"pid"`     // Process ID
 	Command string `json:"command"` // Command name
 	Type    string `json:"type"`    // Process type (e.g., "ai_agent")
-}
-
-// ClaudeConfig contains Claude Code task queue configuration.
-type ClaudeConfig struct {
-	// Claude Code executable and core options
-	Executable string `mapstructure:"executable"` // Claude Code executable path
-	ConfigDir  string `mapstructure:"config_dir"` // Configuration and state directory
-
-	// Global parallelism control
-	MaxParallel         int `mapstructure:"max_parallel"`          // Max parallel Claude instances
-	MaxDevelopmentTasks int `mapstructure:"max_development_tasks"` // Max concurrent development tasks
-
-	// Queue configuration
-	Queue ClaudeQueueConfig `mapstructure:"queue"` // Queue management configuration
-
-	// Worktree integration
-	Worktree ClaudeWorktreeConfig `mapstructure:"worktree"` // Worktree integration options
-
-	// Execution configuration
-	Execution ClaudeExecutionConfig `mapstructure:"execution"` // Execution configuration
-}
-
-// ClaudeQueueConfig contains task queue management configuration.
-type ClaudeQueueConfig struct {
-	QueueDir string `mapstructure:"queue_dir"` // Queue storage directory
-}
-
-// ClaudeWorktreeConfig contains worktree integration configuration.
-type ClaudeWorktreeConfig struct {
-	AutoCreateWorktree      bool `mapstructure:"auto_create_worktree"`      // Auto create via gwq add
-	RequireExistingWorktree bool `mapstructure:"require_existing_worktree"` // Only use existing worktrees
-	ValidateBranchExists    bool `mapstructure:"validate_branch_exists"`    // Check branch exists
-}
-
-// ClaudeExecutionConfig contains execution configuration.
-type ClaudeExecutionConfig struct {
-	AutoCleanup bool `mapstructure:"auto_cleanup"` // Auto cleanup old logs
-}
-
-// ClaudeExecutionFormattingConfig contains log formatting configuration.
-type ClaudeExecutionFormattingConfig struct {
-	ShowToolDetails   bool `mapstructure:"show_tool_details"`   // Show detailed tool information
-	ShowCostBreakdown bool `mapstructure:"show_cost_breakdown"` // Show cost breakdown
-	ShowTimingInfo    bool `mapstructure:"show_timing_info"`    // Show timing information
-	MaxContentLength  int  `mapstructure:"max_content_length"`  // Maximum content length for display
 }
 
 // Worktree type constants for display purposes.

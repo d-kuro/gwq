@@ -125,7 +125,7 @@ BRANCH              STATUS       CHANGES                      ACTIVITY
 ```
 BRANCH              STATUS       CHANGES                      AHEAD/BEHIND  ACTIVITY       PROCESS
 ● main              up to date   -                            ↑0 ↓0         2 hours ago    -
-  feature/auth      changed      5 added, 3 modified          ↑5 ↓2         10 mins ago    claude:8923
+  feature/auth      changed      5 added, 3 modified          ↑5 ↓2         10 mins ago    agent:8923
   feature/api       conflicted   12 added, 8 modified         ↑3 ↓0         5 mins ago     cursor:9102
   bugfix/login      staged       2 added                      ↑1 ↓0         1 hour ago     -
   feature/old-ui    inactive     45 added, 23 modified        ↑12 ↓5        2 weeks ago    -
@@ -188,7 +188,7 @@ BRANCH              STATUS       CHANGES                      ACTIVITY
 ```csv
 branch,status,modified,added,deleted,ahead,behind,last_activity,process
 main,up to date,0,0,0,0,0,2024-01-15T08:30:00Z,
-feature/auth,changed,5,3,0,5,2,2024-01-15T10:20:00Z,claude:8923
+feature/auth,changed,5,3,0,5,2,2024-01-15T10:20:00Z,agent:8923
 feature/api,changed,12,8,0,3,0,2024-01-15T10:25:00Z,cursor:9102
 bugfix/login,staged,0,2,0,1,0,2024-01-15T09:30:00Z,
 feature/old-ui,inactive,45,23,0,12,5,2024-01-01T10:00:00Z,
@@ -365,7 +365,7 @@ gwq status --json | jq '.worktrees | sort_by(.last_activity) | reverse'
 gwq status --json | jq '.summary'
 
 # Show only branches with AI agents
-gwq status --csv | grep -E "(claude|cursor|copilot)"
+gwq status --csv | grep -E "(agent|cursor|copilot)"
 
 # Watch for changes in specific branches
 gwq status --watch --filter "feature/*"

@@ -8,8 +8,8 @@ import (
 
 	"github.com/d-kuro/gwq/internal/git"
 	"github.com/d-kuro/gwq/internal/tmux"
+	"github.com/d-kuro/gwq/internal/utils"
 	"github.com/d-kuro/gwq/pkg/models"
-	"github.com/d-kuro/gwq/pkg/utils"
 	"github.com/ktr0731/go-fuzzyfinder"
 )
 
@@ -316,7 +316,7 @@ func (f *Finder) generateBranchPreview(branch models.Branch, maxLines int) strin
 		fmt.Sprintf("Hash: %s", truncateHash(branch.LastCommit.Hash)),
 	}
 
-	return strings.Join(preview[:utils.Min(len(preview), maxLines)], "\n")
+	return strings.Join(preview[:min(len(preview), maxLines)], "\n")
 }
 
 // truncateHash truncates a commit hash to 8 characters.

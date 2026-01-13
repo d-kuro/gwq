@@ -9,7 +9,7 @@ import (
 	"text/template"
 
 	"github.com/d-kuro/gwq/internal/url"
-	"github.com/d-kuro/gwq/pkg/utils"
+	"github.com/d-kuro/gwq/internal/utils"
 )
 
 // TemplateData contains the data available for template processing.

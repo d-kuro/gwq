@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/d-kuro/gwq/internal/utils"
 	"github.com/d-kuro/gwq/pkg/models"
-	"github.com/d-kuro/gwq/pkg/utils"
 	"github.com/spf13/viper"
 )
 
@@ -50,23 +50,6 @@ func Init() error {
 		":": "-",
 	})
 
-	// Claude defaults
-	viper.SetDefault("claude.executable", "claude")
-	viper.SetDefault("claude.config_dir", "~/.config/gwq/claude")
-	viper.SetDefault("claude.max_parallel", 3)
-	viper.SetDefault("claude.max_development_tasks", 2)
-
-	// Claude queue defaults
-	viper.SetDefault("claude.queue.queue_dir", "~/.config/gwq/claude/queue")
-
-	// Claude worktree defaults
-	viper.SetDefault("claude.worktree.auto_create_worktree", true)
-	viper.SetDefault("claude.worktree.require_existing_worktree", false)
-	viper.SetDefault("claude.worktree.validate_branch_exists", true)
-
-	// Claude execution defaults
-	viper.SetDefault("claude.execution.auto_cleanup", true)
-
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 			configPath := filepath.Join(configDir, configName+"."+configType)
@@ -90,35 +73,28 @@ func Load() (*models.Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
+	if err := expandConfigPaths(&cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+// expandConfigPaths expands all path fields in the configuration.
+func expandConfigPaths(cfg *models.Config) error {
 	expandedPath, err := utils.ExpandPath(cfg.Worktree.BaseDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to expand worktree base dir: %w", err)
+		return fmt.Errorf("failed to expand worktree base dir: %w", err)
 	}
 	cfg.Worktree.BaseDir = expandedPath
 
-	// Expand Claude configuration paths
-	expandedPath, err = utils.ExpandPath(cfg.Claude.ConfigDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to expand claude config dir: %w", err)
-	}
-	cfg.Claude.ConfigDir = expandedPath
-
-	expandedPath, err = utils.ExpandPath(cfg.Claude.Queue.QueueDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to expand claude queue dir: %w", err)
-	}
-	cfg.Claude.Queue.QueueDir = expandedPath
-
-	// Expand repository settings paths
 	for i := range cfg.RepositorySettings {
 		expandedPath, err = utils.ExpandPath(cfg.RepositorySettings[i].Repository)
 		if err != nil {
-			return nil, fmt.Errorf("failed to expand repository setting path: %w", err)
+			return fmt.Errorf("failed to expand repository setting path: %w", err)
 		}
 		cfg.RepositorySettings[i].Repository = expandedPath
 	}
-
-	return &cfg, nil
+	return nil
 }
 
 // Set sets a configuration value by key.
@@ -144,34 +120,11 @@ func Get() *models.Config {
 		// Initialize with viper defaults if config cannot be loaded
 		var defaultCfg models.Config
 		if err := viper.Unmarshal(&defaultCfg); err != nil {
-			// Fallback to empty config if unmarshal fails
 			return &models.Config{}
 		}
 
-		// Apply path expansions to defaults
-		expandedPath, err := utils.ExpandPath(defaultCfg.Worktree.BaseDir)
-		if err == nil {
-			defaultCfg.Worktree.BaseDir = expandedPath
-		}
-
-		expandedPath, err = utils.ExpandPath(defaultCfg.Claude.ConfigDir)
-		if err == nil {
-			defaultCfg.Claude.ConfigDir = expandedPath
-		}
-
-		expandedPath, err = utils.ExpandPath(defaultCfg.Claude.Queue.QueueDir)
-		if err == nil {
-			defaultCfg.Claude.Queue.QueueDir = expandedPath
-		}
-
-		// Expand repository settings paths
-		for i := range defaultCfg.RepositorySettings {
-			expandedPath, err = utils.ExpandPath(defaultCfg.RepositorySettings[i].Repository)
-			if err == nil {
-				defaultCfg.RepositorySettings[i].Repository = expandedPath
-			}
-		}
-
+		// Apply path expansions to defaults, ignoring errors
+		_ = expandConfigPaths(&defaultCfg)
 		return &defaultCfg
 	}
 	return cfg

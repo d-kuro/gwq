@@ -8,12 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/d-kuro/gwq/internal/command"
+	"github.com/d-kuro/gwq/internal/filesystem"
 	"github.com/d-kuro/gwq/internal/template"
 	"github.com/d-kuro/gwq/internal/url"
-	"github.com/d-kuro/gwq/pkg/command"
-	"github.com/d-kuro/gwq/pkg/filesystem"
+	"github.com/d-kuro/gwq/internal/utils"
 	"github.com/d-kuro/gwq/pkg/models"
-	"github.com/d-kuro/gwq/pkg/utils"
 )
 
 // GitInterface defines the git operations used by Manager.
@@ -45,130 +45,31 @@ func New(g GitInterface, config *models.Config) *Manager {
 
 // Add creates a new worktree.
 func (m *Manager) Add(branch string, customPath string, createBranch bool) error {
-	path := customPath
-	if path == "" {
-		generatedPath, err := m.generateWorktreePath(branch)
-		if err != nil {
-			return fmt.Errorf("failed to generate worktree path: %w", err)
-		}
-		path = generatedPath
-	}
-
-	// Expand path (handles ~, env vars, and relative paths)
-	expandedPath, err := utils.ExpandPath(path)
+	path, err := m.preparePath(customPath, branch)
 	if err != nil {
-		return fmt.Errorf("failed to expand path: %w", err)
-	}
-	path = expandedPath
-
-	if m.config.Worktree.AutoMkdir {
-		dir := filepath.Dir(path)
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("failed to create directory: %w", err)
-		}
+		return err
 	}
 
 	if err := m.git.AddWorktree(path, branch, createBranch); err != nil {
 		return err
 	}
 
-	// Configurable file copy and setup commands
-	repoRoot, _ := os.Getwd() // TODO: Replace with actual repo root if available
-	var repoSetting *models.RepositorySetting
-
-	for i, s := range m.config.RepositorySettings {
-		if utils.MatchPath(s.Repository, repoRoot) {
-			repoSetting = &m.config.RepositorySettings[i]
-			break
-		}
-	}
-
-	if repoSetting != nil {
-		copyErrs := CopyFilesWithGlob(filesystem.NewStandardFileSystem(), repoRoot, path, repoSetting.CopyFiles)
-		for _, err := range copyErrs {
-			fmt.Fprintf(os.Stderr, "[gwq] file copy error: %v\n", err)
-		}
-
-		outputs, setupErrs := RunSetupCommands(
-			context.Background(),
-			command.NewStandardExecutor(),
-			path,
-			repoSetting.SetupCommands,
-		)
-		for i, out := range outputs {
-			if out != "" {
-				fmt.Fprintf(os.Stderr, "[gwq] setup command output: %s\n", out)
-			}
-			if i < len(setupErrs) && setupErrs[i] != nil {
-				fmt.Fprintf(os.Stderr, "[gwq] setup command error: %v\n", setupErrs[i])
-			}
-		}
-	}
-
+	m.runPostWorktreeSetup(path)
 	return nil
 }
 
 // AddFromBase creates a new worktree with a branch from a specific base branch.
 func (m *Manager) AddFromBase(branch string, baseBranch string, customPath string) error {
-	path := customPath
-	if path == "" {
-		generatedPath, err := m.generateWorktreePath(branch)
-		if err != nil {
-			return fmt.Errorf("failed to generate worktree path: %w", err)
-		}
-		path = generatedPath
-	}
-
-	// Expand path (handles ~, env vars, and relative paths)
-	expandedPath, err := utils.ExpandPath(path)
+	path, err := m.preparePath(customPath, branch)
 	if err != nil {
-		return fmt.Errorf("failed to expand path: %w", err)
-	}
-	path = expandedPath
-
-	if m.config.Worktree.AutoMkdir {
-		dir := filepath.Dir(path)
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("failed to create directory: %w", err)
-		}
+		return err
 	}
 
 	if err := m.git.AddWorktreeFromBase(path, branch, baseBranch); err != nil {
 		return err
 	}
 
-	// Configurable file copy and setup commands
-	repoRoot, _ := os.Getwd()
-	var repoSetting *models.RepositorySetting
-	for i, s := range m.config.RepositorySettings {
-		if utils.MatchPath(s.Repository, repoRoot) {
-			repoSetting = &m.config.RepositorySettings[i]
-			break
-		}
-	}
-
-	if repoSetting != nil {
-		copyErrs := CopyFilesWithGlob(filesystem.NewStandardFileSystem(), repoRoot, path, repoSetting.CopyFiles)
-		for _, err := range copyErrs {
-			fmt.Fprintf(os.Stderr, "[gwq] file copy error: %v\n", err)
-		}
-
-		outputs, setupErrs := RunSetupCommands(
-			context.Background(),
-			command.NewStandardExecutor(),
-			path,
-			repoSetting.SetupCommands,
-		)
-		for i, out := range outputs {
-			if out != "" {
-				fmt.Fprintf(os.Stderr, "[gwq] setup command output: %s\n", out)
-			}
-			if i < len(setupErrs) && setupErrs[i] != nil {
-				fmt.Fprintf(os.Stderr, "[gwq] setup command error: %v\n", setupErrs[i])
-			}
-		}
-	}
-
+	m.runPostWorktreeSetup(path)
 	return nil
 }
 
@@ -262,6 +163,71 @@ func (m *Manager) ValidateWorktreePath(path string) error {
 	}
 
 	return nil
+}
+
+// preparePath resolves and prepares the worktree path, creating parent directories if needed.
+func (m *Manager) preparePath(customPath, branch string) (string, error) {
+	path := customPath
+	if path == "" {
+		generatedPath, err := m.generateWorktreePath(branch)
+		if err != nil {
+			return "", fmt.Errorf("failed to generate worktree path: %w", err)
+		}
+		path = generatedPath
+	}
+
+	expandedPath, err := utils.ExpandPath(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to expand path: %w", err)
+	}
+	path = expandedPath
+
+	if m.config.Worktree.AutoMkdir {
+		dir := filepath.Dir(path)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return "", fmt.Errorf("failed to create directory: %w", err)
+		}
+	}
+
+	return path, nil
+}
+
+// runPostWorktreeSetup runs file copy and setup commands for the new worktree.
+func (m *Manager) runPostWorktreeSetup(worktreePath string) {
+	repoRoot, _ := os.Getwd()
+
+	var repoSetting *models.RepositorySetting
+	for i, s := range m.config.RepositorySettings {
+		if utils.MatchPath(s.Repository, repoRoot) {
+			repoSetting = &m.config.RepositorySettings[i]
+			break
+		}
+	}
+
+	if repoSetting == nil {
+		return
+	}
+
+	// Copy files
+	for _, err := range CopyFilesWithGlob(filesystem.NewStandardFileSystem(), repoRoot, worktreePath, repoSetting.CopyFiles) {
+		fmt.Fprintf(os.Stderr, "[gwq] file copy error: %v\n", err)
+	}
+
+	// Run setup commands
+	outputs, setupErrs := RunSetupCommands(
+		context.Background(),
+		command.NewStandardExecutor(),
+		worktreePath,
+		repoSetting.SetupCommands,
+	)
+	for i, out := range outputs {
+		if out != "" {
+			fmt.Fprintf(os.Stderr, "[gwq] setup command output: %s\n", out)
+		}
+		if i < len(setupErrs) && setupErrs[i] != nil {
+			fmt.Fprintf(os.Stderr, "[gwq] setup command error: %v\n", setupErrs[i])
+		}
+	}
 }
 
 // generateWorktreePath generates a path for a new worktree using template configuration.

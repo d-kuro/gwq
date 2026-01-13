@@ -9,8 +9,8 @@ import (
 
 	"github.com/d-kuro/gwq/internal/git"
 	"github.com/d-kuro/gwq/internal/url"
+	"github.com/d-kuro/gwq/internal/utils"
 	"github.com/d-kuro/gwq/pkg/models"
-	"github.com/d-kuro/gwq/pkg/utils"
 )
 
 // GlobalWorktreeEntry represents a discovered worktree.

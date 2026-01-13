@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/d-kuro/gwq/pkg/utils"
+	"github.com/d-kuro/gwq/internal/utils"
 )
 
 type SessionManager struct {
@@ -15,7 +15,7 @@ type SessionManager struct {
 	tmuxCmd TmuxInterface
 }
 
-func NewSessionManager(config *SessionConfig, dataDir string) *SessionManager {
+func NewSessionManager(config *SessionConfig) *SessionManager {
 	if config == nil {
 		config = DefaultSessionConfig()
 	}

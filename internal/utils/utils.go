@@ -2,27 +2,15 @@
 package utils
 
 import (
-	"cmp"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
 )
-
-// Min returns the minimum of two ordered values.
-func Min[T cmp.Ordered](a, b T) T {
-	return min(a, b)
-}
-
-// Max returns the maximum of two ordered values.
-func Max[T cmp.Ordered](a, b T) T {
-	return max(a, b)
-}
 
 // Filter returns a new slice containing only elements that match the predicate.
 func Filter[T any](slice []T, predicate func(T) bool) []T {
@@ -56,11 +44,6 @@ func Find[T any](slice []T, predicate func(T) bool) (T, bool) {
 	return zero, false
 }
 
-// Contains checks if a slice contains a specific element.
-func Contains[T comparable](slice []T, element T) bool {
-	return slices.Contains(slice, element)
-}
-
 // Unique returns a new slice with duplicate elements removed.
 func Unique[T comparable](slice []T) []T {
 	seen := make(map[T]bool)
@@ -85,18 +68,16 @@ func ExpandPath(path string) (string, error) {
 	path = os.ExpandEnv(path)
 
 	// Step 2: Expand tilde (~)
-	if strings.HasPrefix(path, "~/") {
+	if path == "~" || strings.HasPrefix(path, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("failed to get home directory: %w", err)
 		}
-		path = filepath.Join(home, path[2:])
-	} else if path == "~" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get home directory: %w", err)
+		if path == "~" {
+			path = home
+		} else {
+			path = filepath.Join(home, path[2:])
 		}
-		path = home
 	}
 
 	// Step 3: Convert to absolute path if relative
@@ -137,34 +118,32 @@ func TildePath(path string) string {
 	return path
 }
 
-// GenerateID generates a random ID (12 characters).
+// mustReadRandom reads random bytes and panics if crypto/rand fails.
+// A crypto/rand failure indicates a serious system issue that cannot be recovered.
+func mustReadRandom(b []byte) {
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("crypto/rand failure: %v", err))
+	}
+}
+
+// GenerateID generates a random ID (12 hex characters).
 func GenerateID() string {
 	b := make([]byte, 6)
-	if _, err := rand.Read(b); err != nil {
-		// Fall back to a basic ID if crypto/rand fails
-		return fmt.Sprintf("%012x", len(b)*1000000)
-	}
+	mustReadRandom(b)
 	return hex.EncodeToString(b)
 }
 
-// GenerateShortID generates a short random ID (6 characters).
+// GenerateShortID generates a short random ID (6 hex characters).
 func GenerateShortID() string {
 	b := make([]byte, 3)
-	if _, err := rand.Read(b); err != nil {
-		// Fall back to a basic short ID if crypto/rand fails
-		return fmt.Sprintf("%06x", len(b)*1000000)
-	}
+	mustReadRandom(b)
 	return hex.EncodeToString(b)
 }
 
 // GenerateUUID generates a UUID-like string.
 func GenerateUUID() string {
 	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		// Fall back to a deterministic UUID-like string if crypto/rand fails
-		return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-			0, 0, 0, 0, 0)
-	}
+	mustReadRandom(b)
 	return fmt.Sprintf("%x-%x-%x-%x-%x",
 		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }

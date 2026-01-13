@@ -130,16 +130,6 @@ Manage configuration settings
 - Set configuration values (`gwq config set <key> <value>`)
 - Hierarchical key support (e.g., `worktree.basedir`)
 
-#### `gwq claude`
-
-Manage Claude Code integration for automated development
-
-- Interactive execution with `gwq claude run`
-- Structured task queue management with `gwq claude task`
-- Comprehensive logging and monitoring with `gwq claude logs`
-- Task-specific log management with `gwq claude task logs`
-- Worker management for automated task execution
-
 #### `gwq version`
 
 Display version information
@@ -166,19 +156,19 @@ gwq/
 │   ├── config/           # Configuration management
 │   ├── discovery/        # Filesystem-based worktree discovery
 │   ├── finder/           # Fuzzy finder integration
+│   ├── filesystem/       # Filesystem abstractions
 │   ├── git/              # Git operations wrapper
+│   ├── command/          # Command execution abstractions
 │   ├── registry/         # Worktree registry (deprecated)
+│   ├── table/            # Table rendering utilities
+│   ├── template/         # Template rendering helpers
+│   ├── tmux/             # tmux session management
 │   ├── ui/               # User interface components
+│   ├── utils/            # Internal shared utilities
 │   ├── url/              # Repository URL parsing and hierarchy
 │   └── worktree/         # Worktree management logic
 └── pkg/
-    ├── cache/            # Caching utilities
-    ├── models/           # Data structures
-    ├── option/           # Option types and utilities
-    ├── pipeline/         # Pipeline processing utilities
-    ├── repository/       # Repository information handling
-    ├── result/           # Result type utilities
-    └── utils/            # General utilities
+    └── models/           # Data structures
 ```
 
 ### Key Components

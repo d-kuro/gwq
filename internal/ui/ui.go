@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/d-kuro/gwq/internal/table"
+	"github.com/d-kuro/gwq/internal/utils"
 	"github.com/d-kuro/gwq/pkg/models"
-	"github.com/d-kuro/gwq/pkg/utils"
 )
 
 // Printer handles output formatting.
