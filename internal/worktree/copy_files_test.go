@@ -36,10 +36,10 @@ func TestCopyFilesWithGlob(t *testing.T) {
 			name: "double star recursive",
 			dirs: []string{"configs", "configs/dev", "configs/dev/secrets", "other"},
 			files: map[string]string{
-				"configs/base.yaml":              "base",
-				"configs/dev/app.yaml":           "app",
-				"configs/dev/secrets/db.yaml":    "db",
-				"other/ignore.txt":               "ignore",
+				"configs/base.yaml":           "base",
+				"configs/dev/app.yaml":        "app",
+				"configs/dev/secrets/db.yaml": "db",
+				"other/ignore.txt":            "ignore",
 			},
 			patterns: []string{"configs/**"},
 			expected: []string{
