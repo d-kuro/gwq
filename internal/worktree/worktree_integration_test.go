@@ -51,7 +51,7 @@ func TestManagerAdd_Integration(t *testing.T) {
 	mockG := &mockGit{}
 	m := New(mockG, cfg)
 
-	err = m.Add("feature/test", filepath.Join(worktreeDir, "wt1"), false)
+	_, err = m.Add("feature/test", filepath.Join(worktreeDir, "wt1"), false)
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}

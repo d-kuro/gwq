@@ -10,6 +10,7 @@ var (
 	addBranch      bool
 	addInteractive bool
 	addForce       bool
+	addStay        bool
 )
 
 // addCmd represents the add command.
@@ -30,7 +31,10 @@ Use -i flag to interactively select a branch using fuzzy finder.`,
   gwq add -b feature/api-v2
 
   # Interactive branch selection
-  gwq add -i`,
+  gwq add -i
+
+  # Create worktree and stay in the directory
+  gwq add -s feature/new-ui`,
 	RunE:              runAdd,
 	ValidArgsFunction: getBranchCompletions,
 }
@@ -41,6 +45,7 @@ func init() {
 	addCmd.Flags().BoolVarP(&addBranch, "branch", "b", false, "Create new branch")
 	addCmd.Flags().BoolVarP(&addInteractive, "interactive", "i", false, "Select branch using fuzzy finder")
 	addCmd.Flags().BoolVarP(&addForce, "force", "f", false, "Overwrite existing directory")
+	addCmd.Flags().BoolVarP(&addStay, "stay", "s", false, "Stay in worktree directory after creation")
 }
 
 func runAdd(cmd *cobra.Command, args []string) error {
@@ -84,11 +89,17 @@ func runAdd(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		if err := ctx.WorktreeManager.Add(branch, path, addBranch); err != nil {
+		worktreePath, err := ctx.WorktreeManager.Add(branch, path, addBranch)
+		if err != nil {
 			return err
 		}
 
 		ctx.Printer.PrintSuccess(fmt.Sprintf("Created worktree for branch '%s'", branch))
+
+		if addStay {
+			_ = LaunchShell(worktreePath)
+		}
+
 		return nil
 	})(cmd, args)
 }

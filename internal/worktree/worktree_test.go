@@ -142,7 +142,7 @@ func TestManagerAdd(t *testing.T) {
 			mockG := &mockGit{}
 			m := New(mockG, tt.config)
 
-			err := m.Add(tt.branch, tt.customPath, tt.createBranch)
+			_, err := m.Add(tt.branch, tt.customPath, tt.createBranch)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Add() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -504,7 +504,7 @@ func TestManagerAdd_ConfigurableSetupIntegration(t *testing.T) {
 	mockG := &mockGit{}
 	m := New(mockG, cfg)
 
-	err = m.Add("feature/test", filepath.Join(worktreeDir, "wt1"), false)
+	_, err = m.Add("feature/test", filepath.Join(worktreeDir, "wt1"), false)
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}

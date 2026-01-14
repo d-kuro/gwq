@@ -278,13 +278,7 @@ func getGlobalWorktreePathForExec(cfg *models.Config, pattern string) (string, e
 }
 
 func executeInWorktree(worktreePath string, commandArgs []string, stay bool) error {
-	// Execute the command in the worktree directory
-	var cmd *exec.Cmd
-	if len(commandArgs) == 1 {
-		cmd = exec.Command(commandArgs[0])
-	} else {
-		cmd = exec.Command(commandArgs[0], commandArgs[1:]...)
-	}
+	cmd := exec.Command(commandArgs[0], commandArgs[1:]...)
 
 	cmd.Dir = worktreePath
 	cmd.Env = os.Environ()
@@ -296,23 +290,8 @@ func executeInWorktree(worktreePath string, commandArgs []string, stay bool) err
 
 	if stay {
 		// Launch a new shell in the worktree directory after command execution
-		shell := os.Getenv("SHELL")
-		if shell == "" {
-			shell = "/bin/sh"
-		}
-
-		fmt.Printf("Launching shell in: %s\n", worktreePath)
-		fmt.Println("Type 'exit' to return to the original directory")
-
-		shellCmd := exec.Command(shell)
-		shellCmd.Dir = worktreePath
-		shellCmd.Env = os.Environ()
-		shellCmd.Stdin = os.Stdin
-		shellCmd.Stdout = os.Stdout
-		shellCmd.Stderr = os.Stderr
-
 		// Run the shell regardless of the original command's exit status
-		_ = shellCmd.Run()
+		_ = LaunchShell(worktreePath)
 	}
 
 	return err

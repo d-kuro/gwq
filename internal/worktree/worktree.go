@@ -43,34 +43,35 @@ func New(g GitInterface, config *models.Config) *Manager {
 	}
 }
 
-// Add creates a new worktree.
-func (m *Manager) Add(branch string, customPath string, createBranch bool) error {
+// Add creates a new worktree and returns the path of the created worktree.
+func (m *Manager) Add(branch string, customPath string, createBranch bool) (string, error) {
 	path, err := m.preparePath(customPath, branch)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if err := m.git.AddWorktree(path, branch, createBranch); err != nil {
-		return err
+		return "", err
 	}
 
 	m.runPostWorktreeSetup(path)
-	return nil
+	return path, nil
 }
 
-// AddFromBase creates a new worktree with a branch from a specific base branch.
-func (m *Manager) AddFromBase(branch string, baseBranch string, customPath string) error {
+// AddFromBase creates a new worktree with a branch from a specific base branch
+// and returns the path of the created worktree.
+func (m *Manager) AddFromBase(branch string, baseBranch string, customPath string) (string, error) {
 	path, err := m.preparePath(customPath, branch)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if err := m.git.AddWorktreeFromBase(path, branch, baseBranch); err != nil {
-		return err
+		return "", err
 	}
 
 	m.runPostWorktreeSetup(path)
-	return nil
+	return path, nil
 }
 
 // Remove deletes a worktree.
