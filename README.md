@@ -333,45 +333,13 @@ setup_commands = ["npm install", "npm run setup"]
 
 ## Advanced Usage
 
-### Parallel AI Agent Workflow
+### Unified Workflow with ghq and fzf
 
-```bash
-# Create worktrees
-gwq add -b feature/auth
-gwq add -b feature/api
+For a powerful development workflow, you can integrate `gwq` with [ghq](https://github.com/x-motemen/ghq) (repository manager) and [fzf](https://github.com/junegunn/fzf) (fuzzy finder). This combination is particularly effective for parallel AI coding agent workflows.
 
-# Launch AI agents in each worktree
-cd $(gwq get auth) && claude
-cd $(gwq get api) && claude
+The key idea is to place worktrees alongside your cloned repositories under the same root directory, enabling unified fuzzy search across both. This consolidates all your development directories into a single searchable location.
 
-# Or use tmux for background tasks
-gwq tmux run --id ai-auth "claude migrate auth module"
-gwq tmux run --id ai-api "claude migrate api module"
-
-# Monitor progress
-gwq status --watch
-gwq tmux list --watch
-```
-
-### Batch Operations
-
-```bash
-# Find worktrees with uncommitted changes
-gwq status --json | jq '.worktrees[] | select(.status == "modified")'
-
-# Export status report
-gwq status --csv > worktree-status-$(date +%Y%m%d).csv
-```
-
-### Integration with Git Workflows
-
-```bash
-# Create worktree for PR review
-gwq add -b pr-123-review origin/pull/123/head
-
-# Create worktree for hotfix
-gwq add -b hotfix/critical-bug origin/main
-```
+For detailed configuration and shell function setup, see: [ghq × gwq × fzf でつくる並列コーディングエージェント開発環境](https://zenn.dev/shunk031/articles/ghq-gwq-fzf-worktree)
 
 ## Directory Structure
 
