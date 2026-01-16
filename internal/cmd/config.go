@@ -60,11 +60,15 @@ var configGetCmd = &cobra.Command{
 	ValidArgsFunction: getConfigKeyCompletions,
 }
 
+var configSetLocal bool
+
 func init() {
 	rootCmd.AddCommand(configCmd)
 	configCmd.AddCommand(configListCmd)
 	configCmd.AddCommand(configSetCmd)
 	configCmd.AddCommand(configGetCmd)
+
+	configSetCmd.Flags().BoolVar(&configSetLocal, "local", false, "Write to local config (.gwq.toml) instead of global")
 }
 
 func runConfigList(cmd *cobra.Command, args []string) error {
@@ -85,7 +89,7 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 	value := args[1]
 
 	// Convert string values to appropriate types
-	var typedValue interface{} = value
+	var typedValue any = value
 	switch value {
 	case "true":
 		typedValue = true
@@ -99,11 +103,22 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if err := config.Set(key, typedValue); err != nil {
+	var err error
+	if configSetLocal {
+		err = config.SetLocal(key, typedValue)
+	} else {
+		err = config.SetGlobal(key, typedValue)
+	}
+
+	if err != nil {
 		return fmt.Errorf("failed to set config: %w", err)
 	}
 
-	fmt.Printf("Set %s = %v\n", key, typedValue)
+	target := "global"
+	if configSetLocal {
+		target = "local (.gwq.toml)"
+	}
+	fmt.Printf("Set %s = %v (%s)\n", key, typedValue, target)
 	return nil
 }
 

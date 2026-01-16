@@ -238,12 +238,17 @@ Manage configuration.
 # Show configuration
 gwq config list
 
-# Set value
+# Set global value (default)
 gwq config set worktree.basedir ~/worktrees
+
+# Set local value (writes to .gwq.toml in current directory)
+gwq config set --local finder.preview false
 
 # Get value
 gwq config get worktree.basedir
 ```
+
+**Flags**: `--local` (write to local config instead of global)
 
 ### `gwq prune`
 
@@ -287,7 +292,18 @@ gwq completion powershell | Out-String | Invoke-Expression
 
 ## Configuration
 
-Configuration file: `~/.config/gwq/config.toml`
+### Configuration Files
+
+gwq uses two configuration files:
+
+| File | Location | Purpose |
+|------|----------|---------|
+| Global | `~/.config/gwq/config.toml` | Default settings for all projects |
+| Local | `.gwq.toml` (current directory) | Project-specific overrides |
+
+Local configuration takes precedence over global settings.
+
+**Example global config** (`~/.config/gwq/config.toml`):
 
 ```toml
 [worktree]
@@ -322,7 +338,7 @@ setup_commands = ["npm install"]
 
 ### Per-Repository Setup
 
-Configure automatic file copying and setup commands per repository:
+Configure automatic file copying and setup commands per repository. These settings can be defined in both global and local configuration files.
 
 ```toml
 [[repository_settings]]
@@ -330,6 +346,44 @@ repository = "~/src/myproject"
 copy_files = ["templates/.env.example", "config/*.json"]
 setup_commands = ["npm install", "npm run setup"]
 ```
+
+#### Merge Behavior
+
+When both global and local configs define `repository_settings`, they are merged using the `repository` field as the key:
+
+- **Same repository**: Local settings completely override global
+- **Different repositories**: Both are kept
+
+**Example:**
+
+Global config (`~/.config/gwq/config.toml`):
+```toml
+[[repository_settings]]
+repository = "~/src/project-a"
+setup_commands = ["npm install"]
+
+[[repository_settings]]
+repository = "~/src/project-b"
+setup_commands = ["go mod download"]
+```
+
+Local config (`.gwq.toml`):
+```toml
+[[repository_settings]]
+repository = "~/src/project-a"
+setup_commands = ["yarn install", "yarn build"]
+
+[[repository_settings]]
+repository = "~/src/project-c"
+setup_commands = ["make setup"]
+```
+
+**Merged result:**
+| Repository | Source | Commands |
+|------------|--------|----------|
+| `project-a` | Local (override) | `yarn install`, `yarn build` |
+| `project-b` | Global | `go mod download` |
+| `project-c` | Local (new) | `make setup` |
 
 ## Advanced Usage
 
