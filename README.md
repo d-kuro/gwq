@@ -36,6 +36,11 @@ Since each worktree has its own working directory with isolated files, AI agents
 
 ## Installation
 
+### Homebrew (macOS/Linux)
+```bash
+brew install d-kuro/tap/gwq
+```
+
 ### Using Go
 ```bash
 go install github.com/d-kuro/gwq/cmd/gwq@latest
