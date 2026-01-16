@@ -64,3 +64,17 @@ release:
     ---
 
     Released by [GoReleaser](https://github.com/goreleaser/goreleaser).
+
+brews:
+  - repository:
+      owner: d-kuro
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: "https://github.com/d-kuro/gwq"
+    description: "Git Worktree Manager for efficient worktree operations"
+    license: "Apache-2.0"
+    directory: Formula
+    install: |
+      bin.install "gwq"
+    test: |
+      system "#{bin}/gwq", "--version"
