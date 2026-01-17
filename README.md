@@ -398,7 +398,7 @@ For a powerful development workflow, you can integrate `gwq` with [ghq](https://
 
 The key idea is to place worktrees alongside your cloned repositories under the same root directory, enabling unified fuzzy search across both. This consolidates all your development directories into a single searchable location.
 
-For detailed configuration and shell function setup, see: [ghq × gwq × fzf でつくる並列コーディングエージェント開発環境](https://zenn.dev/shunk031/articles/ghq-gwq-fzf-worktree)
+For detailed configuration and shell function setup, see: [A Coding-Agent-Friendly Environment Is Friendly to Humans Too: ghq x gwq x fzf](https://dev.to/shunk031/a-coding-agent-friendly-environment-is-friendly-to-humans-too-ghq-gwq-fzf-2km0)
 
 ## Directory Structure
 
