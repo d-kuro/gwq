@@ -1,0 +1,5 @@
+[tools]
+go = "latest"
+lefthook = "latest"
+"golangci-lint" = "latest"
+"npm:oxfmt" = "latest"

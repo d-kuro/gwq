@@ -143,12 +143,14 @@ Current stage: `0.0.X` (initial development)
 ### GoReleaser failed
 
 Check the GitHub Actions log for errors. Common issues:
+
 - Missing or invalid `.goreleaser.yaml`
 - Build errors in the code
 
 ### Release notes not showing
 
 Ensure you ran:
+
 ```bash
 gh release edit v0.0.X --notes-file docs/release-notes/v0.0.X.md
 ```

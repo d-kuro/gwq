@@ -20,6 +20,7 @@ gwq-{context}-{identifier}-{timestamp}
 ```
 
 Examples:
+
 - `gwq-task-abc123-20240115103045`
 - `gwq-agent-def456-20240115110230`
 - `gwq-test-feature-auth-20240115120000`
@@ -50,7 +51,7 @@ type Session struct {
 
 type SessionOptions struct {
     Context    string
-    Identifier string  
+    Identifier string
     WorkingDir string
     Command    string
     Metadata   map[string]string
@@ -75,21 +76,21 @@ Create tmux sessions for any long-running commands:
 ```go
 func (s *SessionManager) CreateSession(ctx context.Context, opts SessionOptions) (*Session, error) {
     sessionName := fmt.Sprintf("gwq-%s-%s-%s", opts.Context, opts.Identifier, time.Now().Format("20060102150405"))
-    
+
     // Create tmux session with increased history limit
     tmuxCmd := fmt.Sprintf("tmux new-session -d -s %s -c %s", sessionName, opts.WorkingDir)
     if err := exec.Command("sh", "-c", tmuxCmd).Run(); err != nil {
         return nil, err
     }
-    
+
     // Set history limit for this session
     historyCmd := fmt.Sprintf("tmux set-option -t %s history-limit %d", sessionName, s.config.HistoryLimit)
     exec.Command("sh", "-c", historyCmd).Run()
-    
+
     // Execute command in the session
     cmdExec := fmt.Sprintf("tmux send-keys -t %s '%s' Enter", sessionName, opts.Command)
     exec.Command("sh", "-c", cmdExec).Run()
-    
+
     session := &Session{
         ID:           generateID(),
         SessionName:  sessionName,
@@ -102,7 +103,7 @@ func (s *SessionManager) CreateSession(ctx context.Context, opts SessionOptions)
         HistorySize:  s.config.HistoryLimit,
         Metadata:     opts.Metadata,
     }
-    
+
     return session, nil
 }
 ```
@@ -194,7 +195,6 @@ gwq tmux attach
 gwq tmux attach -i
 ```
 
-
 #### `gwq tmux run`
 
 Run commands in tmux sessions:
@@ -254,16 +254,16 @@ func (w *Worker) executeTaskWithSession(task *Task) error {
             "priority":  task.Priority.String(),
         },
     }
-    
+
     session, err := w.sessionManager.CreateSession(ctx, opts)
     if err != nil {
         return err
     }
-    
+
     // Record session information
     task.SessionID = session.ID
     task.SessionName = session.SessionName
-    
+
     return nil
 }
 
@@ -275,7 +275,7 @@ func runTestsInTmux(branch string, testCommand string) error {
         WorkingDir: getWorktreePath(branch),
         Command:    testCommand,
     }
-    
+
     _, err := sessionManager.CreateSession(ctx, opts)
     return err
 }

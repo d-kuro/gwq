@@ -7,6 +7,7 @@ The worktree status feature provides a comprehensive view of all worktrees' curr
 ## Motivation
 
 When working with multiple AI agents across different worktrees, it becomes challenging to:
+
 - Track which worktrees have uncommitted changes
 - Monitor active development across branches
 - Identify stale or abandoned worktrees
@@ -18,6 +19,7 @@ The status command addresses these challenges by providing a simple, scriptable 
 ## Command Interface
 
 ### Basic Usage
+
 ```bash
 gwq status                   # Table view with basic status
 gwq status --json           # JSON output for scripting
@@ -26,7 +28,8 @@ gwq status --verbose        # Include additional details
 ```
 
 ### Options
-```bash
+
+````bash
 -w, --watch                  # Auto-refresh (default: 5s)
 -i, --interval <seconds>     # Refresh interval for watch mode
 -f, --filter <status>        # Filter by status (modified, clean, stale)
@@ -48,22 +51,22 @@ type WorktreeStatus struct {
     Branch          string    `json:"branch"`
     Repository      string    `json:"repository"`
     Remote          string    `json:"remote"`
-    
+
     // Git Status
     GitStatus       GitStatus `json:"git_status"`
-    
+
     // Activity Metrics
     LastModified    time.Time `json:"last_modified"`
     LastCommit      time.Time `json:"last_commit"`
     LastPush        time.Time `json:"last_push"`
-    
+
     // Resource Usage
     DiskUsage       int64     `json:"disk_usage"`
     FileCount       int       `json:"file_count"`
-    
+
     // Process Information
     ActiveProcesses []Process `json:"active_processes,omitempty"`
-    
+
     // Health Indicators
     Health          Health    `json:"health"`
 }
@@ -74,14 +77,14 @@ type GitStatus struct {
     Added           int       `json:"added"`
     Deleted         int       `json:"deleted"`
     Untracked       int       `json:"untracked"`
-    
+
     // Index Status
     Staged          int       `json:"staged"`
-    
+
     // Branch Status
     Ahead           int       `json:"ahead"`
     Behind          int       `json:"behind"`
-    
+
     // Merge/Rebase Status
     InProgress      string    `json:"in_progress,omitempty"` // "merge", "rebase", "cherry-pick"
     Conflicts       int       `json:"conflicts"`
@@ -107,21 +110,23 @@ const (
     HealthStatusWarning  HealthStatus = "warning"
     HealthStatusCritical HealthStatus = "critical"
 )
-```
+````
 
 ## Display Modes
 
 ### 1. Table View (Default)
+
 ```
-BRANCH              STATUS       CHANGES                      ACTIVITY       
-● main              up to date   -                            2 hours ago    
-  feature/auth      changed      5 added, 3 modified          10 mins ago    
-  feature/api       changed      12 added, 8 modified         5 mins ago     
-  bugfix/login      staged       2 added                      1 hour ago     
-  feature/old-ui    inactive     45 added, 23 modified        2 weeks ago    
+BRANCH              STATUS       CHANGES                      ACTIVITY
+● main              up to date   -                            2 hours ago
+  feature/auth      changed      5 added, 3 modified          10 mins ago
+  feature/api       changed      12 added, 8 modified         5 mins ago
+  bugfix/login      staged       2 added                      1 hour ago
+  feature/old-ui    inactive     45 added, 23 modified        2 weeks ago
 ```
 
 ### 2. Verbose Table View (`--verbose`)
+
 ```
 BRANCH              STATUS       CHANGES                      AHEAD/BEHIND  ACTIVITY       PROCESS
 ● main              up to date   -                            ↑0 ↓0         2 hours ago    -
@@ -132,21 +137,23 @@ BRANCH              STATUS       CHANGES                      AHEAD/BEHIND  ACTI
 ```
 
 ### 3. Watch Mode (`--watch`)
+
 ```
 Worktrees Status (github.com/user/project) - Updated: 10:30:45
 Total: 5 | Changed: 2 | Up to date: 2 | Inactive: 1
 
-BRANCH              STATUS       CHANGES                      ACTIVITY       
-● main              up to date   -                            2 hours ago    
-  feature/auth      changed      5 added, 3 modified          10 mins ago    
-  feature/api       changed      12 added, 8 modified         5 mins ago     
-  bugfix/login      staged       2 added                      1 hour ago     
-  feature/old-ui    inactive     45 added, 23 modified        2 weeks ago    
+BRANCH              STATUS       CHANGES                      ACTIVITY
+● main              up to date   -                            2 hours ago
+  feature/auth      changed      5 added, 3 modified          10 mins ago
+  feature/api       changed      12 added, 8 modified         5 mins ago
+  bugfix/login      staged       2 added                      1 hour ago
+  feature/old-ui    inactive     45 added, 23 modified        2 weeks ago
 
 [Press Ctrl+C to exit]
 ```
 
 ### 4. JSON Output Mode (`--json`)
+
 ```json
 {
   "summary": {
@@ -185,6 +192,7 @@ BRANCH              STATUS       CHANGES                      ACTIVITY
 ```
 
 ### 5. CSV Output Mode (`--csv`)
+
 ```csv
 branch,status,modified,added,deleted,ahead,behind,last_activity,process
 main,up to date,0,0,0,0,0,2024-01-15T08:30:00Z,
@@ -197,6 +205,7 @@ feature/old-ui,inactive,45,23,0,12,5,2024-01-01T10:00:00Z,
 ## Implementation Architecture
 
 ### Component Overview
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    CLI Command Layer                     │
@@ -217,6 +226,7 @@ feature/old-ui,inactive,45,23,0,12,5,2024-01-01T10:00:00Z,
 ### Key Components
 
 #### 1. Status Collector Service
+
 ```go
 type StatusCollector interface {
     CollectAll(ctx context.Context) ([]WorktreeStatus, error)
@@ -226,6 +236,7 @@ type StatusCollector interface {
 ```
 
 #### 2. Git Status Collector
+
 ```go
 type GitCollector interface {
     GetStatus(path string) (*GitStatus, error)
@@ -235,6 +246,7 @@ type GitCollector interface {
 ```
 
 #### 3. Process Monitor
+
 ```go
 type ProcessMonitor interface {
     GetActiveProcesses(path string) ([]Process, error)
@@ -243,6 +255,7 @@ type ProcessMonitor interface {
 ```
 
 #### 4. Health Checker
+
 ```go
 type HealthChecker interface {
     CheckHealth(status *WorktreeStatus) Health
@@ -264,46 +277,46 @@ func (c *statusCollector) CollectAll(ctx context.Context) ([]WorktreeStatus, err
     if err != nil {
         return nil, err
     }
-    
+
     // 2. Collect status in parallel
     results := make([]WorktreeStatus, len(worktrees))
     var wg sync.WaitGroup
-    
+
     for i, wt := range worktrees {
         wg.Add(1)
         go func(idx int, worktree Worktree) {
             defer wg.Done()
-            
+
             status := WorktreeStatus{
                 Path:       worktree.Path,
                 Branch:     worktree.Branch,
                 Repository: worktree.Repository,
             }
-            
+
             // Collect git status
             if gitStatus, err := c.git.GetStatus(worktree.Path); err == nil {
                 status.GitStatus = *gitStatus
             }
-            
+
             // Collect file system metrics
             if metrics, err := c.fs.GetMetrics(worktree.Path); err == nil {
                 status.DiskUsage = metrics.DiskUsage
                 status.FileCount = metrics.FileCount
                 status.LastModified = metrics.LastModified
             }
-            
+
             // Monitor processes
             if procs, err := c.process.GetActiveProcesses(worktree.Path); err == nil {
                 status.ActiveProcesses = procs
             }
-            
+
             // Check health
             status.Health = c.health.CheckHealth(&status)
-            
+
             results[idx] = status
         }(i, wt)
     }
-    
+
     wg.Wait()
     return results, nil
 }
@@ -312,6 +325,7 @@ func (c *statusCollector) CollectAll(ctx context.Context) ([]WorktreeStatus, err
 ## Performance Considerations
 
 ### Caching Strategy
+
 ```go
 type StatusCache struct {
     data      map[string]*WorktreeStatus
@@ -323,7 +337,7 @@ type StatusCache struct {
 func (c *StatusCache) Get(path string) (*WorktreeStatus, bool) {
     c.mu.RLock()
     defer c.mu.RUnlock()
-    
+
     if status, ok := c.data[path]; ok {
         if time.Since(c.lastFetch[path]) < c.ttl {
             return status, true
@@ -334,11 +348,13 @@ func (c *StatusCache) Get(path string) (*WorktreeStatus, bool) {
 ```
 
 ### Parallel Processing
+
 - Use goroutines for concurrent status collection
 - Limit concurrent git operations to avoid overwhelming the system
 - Implement timeout for each collection operation
 
 ### Optimization Techniques
+
 1. **Incremental Updates**: Only refresh changed worktrees in watch mode
 2. **Selective Data Collection**: Skip expensive operations unless requested (e.g., `--show-processes`)
 3. **Background Refresh**: Update cache in background for better responsiveness
@@ -347,11 +363,13 @@ func (c *StatusCache) Get(path string) (*WorktreeStatus, bool) {
 ## UI/UX Considerations
 
 ### Visual Indicators
+
 - Status text clearly indicates worktree state
 - Current worktree marked with bullet (●) when icons enabled
 - Clear text-based formatting for easy reading
 
 ### Output Filtering & Processing
+
 Since the output is designed to be scriptable, users can leverage Unix tools:
 
 ```bash
@@ -374,11 +392,13 @@ gwq status --watch --filter "feature/*"
 ## Error Handling
 
 ### Graceful Degradation
+
 - If git operations fail, show partial information
 - Handle missing worktrees without crashing
 - Timeout long-running operations
 
 ### Error Categories
+
 1. **Git Errors**: Repository corruption, missing .git
 2. **Permission Errors**: Cannot access worktree directory
 3. **Process Errors**: Cannot retrieve process information
@@ -387,11 +407,13 @@ gwq status --watch --filter "feature/*"
 ## Integration Points
 
 ### With Existing Commands
+
 - `gwq get`: Navigate to worktree from dashboard
 - `gwq remove`: Remove stale worktrees identified by dashboard
 - `gwq exec`: Execute commands in selected worktree
 
 ### External Tools
+
 - Export data for external monitoring tools
 - Integration with terminal multiplexers (tmux/screen)
 - Support for custom health check scripts
@@ -399,16 +421,19 @@ gwq status --watch --filter "feature/*"
 ## Testing Strategy
 
 ### Unit Tests
+
 - Test each collector independently
 - Mock git operations for predictable results
 - Test health rules with various scenarios
 
 ### Integration Tests
+
 - Test full pipeline with real worktrees
 - Verify performance with many worktrees
 - Test watch mode and refresh logic
 
 ### Output Tests
+
 - Verify table formatting and alignment
 - Test text output rendering
 - Validate JSON and CSV output formats
@@ -426,6 +451,7 @@ gwq status --watch --filter "feature/*"
 ## Configuration
 
 ### Status Configuration
+
 ```toml
 [status]
 default_interval = 5       # Watch mode refresh interval (seconds)

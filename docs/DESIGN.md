@@ -217,6 +217,7 @@ Tab completion is supported for all major shells:
 - **PowerShell**: `gwq completion powershell | Out-String | Invoke-Expression`
 
 Completion features:
+
 - Branch names for `add` and `remove` commands
 - Worktree names for `cd` and `remove` commands
 - Configuration keys for `config set` command
@@ -251,7 +252,6 @@ tilde_home = true  # Display ~ instead of full home path
 - Template-based naming is maintained for backward compatibility
 - URL hierarchy is the recommended approach for new installations
 - Character sanitization ensures filesystem compatibility across platforms
-
 
 ## Use Cases
 
@@ -316,6 +316,7 @@ tilde_home = true  # Display ~ instead of full home path
 - **Flexibility**: Same branch can have multiple worktrees
 
 **Implementation**:
+
 - `-b/--delete-branch`: Enables branch deletion after worktree removal
 - Uses safe deletion (`git branch -d`) by default
 - `--force-delete-branch`: Force deletion (`git branch -D`) for unmerged branches
@@ -332,6 +333,7 @@ tilde_home = true  # Display ~ instead of full home path
 - **Flexibility**: Users choose the approach that fits their workflow
 
 **Implementation**:
+
 - `gwq get`: Simple path retrieval for command substitution
 - `gwq exec`: Direct command execution without directory change
 - `gwq exec --stay`: Opens interactive shell in worktree
