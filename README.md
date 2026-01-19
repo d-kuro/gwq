@@ -37,16 +37,19 @@ Since each worktree has its own working directory with isolated files, AI agents
 ## Installation
 
 ### Homebrew (macOS/Linux)
+
 ```bash
 brew install d-kuro/tap/gwq
 ```
 
 ### Using Go
+
 ```bash
 go install github.com/d-kuro/gwq/cmd/gwq@latest
 ```
 
 ### From Source
+
 ```bash
 git clone https://github.com/d-kuro/gwq.git
 cd gwq
@@ -276,21 +279,25 @@ gwq prune
 ### Tab Completion
 
 **Bash:**
+
 ```bash
 source <(gwq completion bash)
 ```
 
 **Zsh:**
+
 ```bash
 source <(gwq completion zsh)
 ```
 
 **Fish:**
+
 ```bash
 gwq completion fish > ~/.config/fish/completions/gwq.fish
 ```
 
 **PowerShell:**
+
 ```powershell
 gwq completion powershell | Out-String | Invoke-Expression
 ```
@@ -301,10 +308,10 @@ gwq completion powershell | Out-String | Invoke-Expression
 
 gwq uses two configuration files:
 
-| File | Location | Purpose |
-|------|----------|---------|
-| Global | `~/.config/gwq/config.toml` | Default settings for all projects |
-| Local | `.gwq.toml` (current directory) | Project-specific overrides |
+| File   | Location                        | Purpose                           |
+| ------ | ------------------------------- | --------------------------------- |
+| Global | `~/.config/gwq/config.toml`     | Default settings for all projects |
+| Local  | `.gwq.toml` (current directory) | Project-specific overrides        |
 
 Local configuration takes precedence over global settings.
 
@@ -334,12 +341,12 @@ setup_commands = ["npm install"]
 
 ### Key Settings
 
-| Setting | Description | Default |
-|---------|-------------|---------|
-| `worktree.basedir` | Base directory for worktrees | `~/worktrees` |
-| `naming.template` | Directory naming template | `{{.Host}}/{{.Owner}}/{{.Repository}}/{{.Branch}}` |
-| `ui.tilde_home` | Display `~` instead of full home path | `true` |
-| `ui.icons` | Show icons in output | `true` |
+| Setting            | Description                           | Default                                            |
+| ------------------ | ------------------------------------- | -------------------------------------------------- |
+| `worktree.basedir` | Base directory for worktrees          | `~/worktrees`                                      |
+| `naming.template`  | Directory naming template             | `{{.Host}}/{{.Owner}}/{{.Repository}}/{{.Branch}}` |
+| `ui.tilde_home`    | Display `~` instead of full home path | `true`                                             |
+| `ui.icons`         | Show icons in output                  | `true`                                             |
 
 ### Per-Repository Setup
 
@@ -362,6 +369,7 @@ When both global and local configs define `repository_settings`, they are merged
 **Example:**
 
 Global config (`~/.config/gwq/config.toml`):
+
 ```toml
 [[repository_settings]]
 repository = "~/src/project-a"
@@ -373,6 +381,7 @@ setup_commands = ["go mod download"]
 ```
 
 Local config (`.gwq.toml`):
+
 ```toml
 [[repository_settings]]
 repository = "~/src/project-a"
