@@ -12,12 +12,21 @@ import (
 
 // WorktreeEntry represents a registered worktree.
 type WorktreeEntry struct {
-	Repository   string    `json:"repository"`
-	Branch       string    `json:"branch"`
-	Path         string    `json:"path"`
-	Hash         string    `json:"hash"`
-	IsMain       bool      `json:"is_main"`
-	RegisteredAt time.Time `json:"registered_at"`
+	Repository   string     `json:"repository"`
+	Branch       string     `json:"branch"`
+	Path         string     `json:"path"`
+	Hash         string     `json:"hash"`
+	IsMain       bool       `json:"is_main"`
+	RegisteredAt time.Time  `json:"registered_at"`
+	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
+}
+
+// IsExpired returns true if the worktree has an expiration date that has passed.
+func (e *WorktreeEntry) IsExpired() bool {
+	if e.ExpiresAt == nil {
+		return false
+	}
+	return time.Now().After(*e.ExpiresAt)
 }
 
 // Registry manages global worktree tracking.
@@ -160,6 +169,21 @@ func (r *Registry) Get(path string) (*WorktreeEntry, bool) {
 
 	entry, ok := r.entries[path]
 	return entry, ok
+}
+
+// ListExpired returns all worktrees that have expired.
+func (r *Registry) ListExpired() []*WorktreeEntry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var entries []*WorktreeEntry
+	for _, entry := range r.entries {
+		if entry.IsExpired() {
+			entries = append(entries, entry)
+		}
+	}
+
+	return entries
 }
 
 // Cleanup removes entries that no longer exist on disk.
