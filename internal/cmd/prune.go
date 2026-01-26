@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -105,6 +106,22 @@ func runPruneExpired(cmd *cobra.Command, args []string) error {
 				skipped++
 				continue
 			}
+		}
+
+		// Check if worktree directory still exists
+		if _, err := os.Stat(entry.Path); os.IsNotExist(err) {
+			if pruneDryRun {
+				fmt.Printf("Would unregister (already deleted): %s\n", entry.Path)
+				removed++
+				continue
+			}
+			// Directory already gone, just unregister
+			if err := reg.Unregister(entry.Path); err != nil {
+				fmt.Printf("Warning: failed to unregister %s: %v\n", entry.Path, err)
+			}
+			fmt.Printf("Unregistered (already deleted): %s\n", entry.Path)
+			removed++
+			continue
 		}
 
 		if pruneDryRun {
