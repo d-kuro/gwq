@@ -2,7 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"time"
 
+	"github.com/d-kuro/gwq/internal/duration"
+	"github.com/d-kuro/gwq/internal/registry"
 	"github.com/spf13/cobra"
 )
 
@@ -11,6 +14,7 @@ var (
 	addInteractive bool
 	addForce       bool
 	addStay        bool
+	addExpires     string
 )
 
 // addCmd represents the add command.
@@ -34,7 +38,13 @@ Use -i flag to interactively select a branch using fuzzy finder.`,
   gwq add -i
 
   # Create worktree and stay in the directory
-  gwq add -s feature/new-ui`,
+  gwq add -s feature/new-ui
+
+  # Create worktree expiring in 7 days
+  gwq add --expires 7d feature/experiment
+
+  # Create worktree expiring in 1 hour
+  gwq add --expires 1h hotfix/quick-test`,
 	RunE:              runAdd,
 	ValidArgsFunction: getBranchCompletions,
 }
@@ -46,6 +56,7 @@ func init() {
 	addCmd.Flags().BoolVarP(&addInteractive, "interactive", "i", false, "Select branch using fuzzy finder")
 	addCmd.Flags().BoolVarP(&addForce, "force", "f", false, "Overwrite existing directory")
 	addCmd.Flags().BoolVarP(&addStay, "stay", "s", false, "Stay in worktree directory after creation")
+	addCmd.Flags().StringVar(&addExpires, "expires", "", "Set expiration (e.g., 1d, 7d, 1h)")
 }
 
 func runAdd(cmd *cobra.Command, args []string) error {
@@ -95,6 +106,38 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		}
 
 		ctx.Printer.PrintSuccess(fmt.Sprintf("Created worktree for branch '%s'", branch))
+
+		// Register worktree with expiration if --expires is specified
+		if addExpires != "" {
+			d, err := duration.Parse(addExpires)
+			if err != nil {
+				return fmt.Errorf("invalid expiration duration: %w", err)
+			}
+
+			expiresAt := time.Now().Add(d)
+
+			reg, err := registry.New()
+			if err != nil {
+				return fmt.Errorf("failed to open registry: %w", err)
+			}
+
+			// Get repository URL for the entry
+			repoURL, _ := ctx.Git.GetRepositoryURL()
+
+			entry := &registry.WorktreeEntry{
+				Repository: repoURL,
+				Branch:     branch,
+				Path:       worktreePath,
+				IsMain:     false,
+				ExpiresAt:  &expiresAt,
+			}
+
+			if err := reg.Register(entry); err != nil {
+				return fmt.Errorf("failed to register worktree: %w", err)
+			}
+
+			ctx.Printer.PrintSuccess(fmt.Sprintf("Worktree expires at %s", expiresAt.Format(time.RFC3339)))
+		}
 
 		if addStay {
 			_ = LaunchShell(worktreePath)
