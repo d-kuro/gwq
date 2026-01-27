@@ -8,6 +8,7 @@ import (
 	"github.com/d-kuro/gwq/internal/discovery"
 	"github.com/d-kuro/gwq/internal/finder"
 	"github.com/d-kuro/gwq/internal/git"
+	"github.com/d-kuro/gwq/internal/registry"
 	"github.com/d-kuro/gwq/internal/worktree"
 	"github.com/d-kuro/gwq/pkg/models"
 	"github.com/spf13/cobra"
@@ -171,6 +172,11 @@ func removeLocalWorktree(ctx *CommandContext, args []string) error {
 				continue
 			}
 			ctx.Printer.PrintSuccess(fmt.Sprintf("Removed worktree: %s", wt.Branch))
+		}
+
+		// Clean up registry entry after successful removal
+		if reg, err := registry.New(); err == nil {
+			_ = reg.Unregister(wt.Path)
 		}
 	}
 
@@ -360,6 +366,11 @@ func removeGlobalWorktree(ctx *CommandContext, args []string) error {
 		ctx.Printer.PrintSuccess(fmt.Sprintf("Removed worktree: %s:%s", repoName, entry.Branch))
 		if deleteBranch && entry.Branch != "" {
 			ctx.Printer.PrintSuccess(fmt.Sprintf("Deleted branch: %s", entry.Branch))
+		}
+
+		// Clean up registry entry after successful removal
+		if reg, err := registry.New(); err == nil {
+			_ = reg.Unregister(entry.Path)
 		}
 
 		// Change back to original directory
