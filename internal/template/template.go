@@ -89,3 +89,48 @@ func generateShortHash(input string) string {
 	hash := sha256.Sum256([]byte(input))
 	return fmt.Sprintf("%x", hash[:4]) // 8 character hex string
 }
+
+// DisplayTemplateData contains the data available for display template processing.
+type DisplayTemplateData struct {
+	Host       string // e.g., "github.com"
+	Owner      string // e.g., "user"
+	Repository string // e.g., "myapp"
+	Branch     string // e.g., "feature"
+	Path       string // e.g., "~/ghq/github.com/user/myapp" (tilde-expanded)
+	IsMain     bool   // Whether this is the main worktree
+}
+
+// DisplayProcessor handles template processing for worktree display formatting.
+type DisplayProcessor struct {
+	template *template.Template
+}
+
+// NewDisplayProcessor creates a new display template processor.
+func NewDisplayProcessor(templateStr string) (*DisplayProcessor, error) {
+	if templateStr == "" {
+		return &DisplayProcessor{template: nil}, nil
+	}
+
+	tmpl, err := template.New("display").Parse(templateStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse display template: %w", err)
+	}
+
+	return &DisplayProcessor{
+		template: tmpl,
+	}, nil
+}
+
+// Format formats the display data using the configured template.
+func (p *DisplayProcessor) Format(data *DisplayTemplateData) (string, error) {
+	if p.template == nil {
+		return "", fmt.Errorf("no template configured")
+	}
+
+	var buf strings.Builder
+	if err := p.template.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("failed to execute display template: %w", err)
+	}
+
+	return buf.String(), nil
+}

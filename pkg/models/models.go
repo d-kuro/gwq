@@ -5,11 +5,19 @@ import "time"
 
 // Worktree represents a Git worktree with its associated metadata.
 type Worktree struct {
-	Path       string    `json:"path"`        // Absolute path to the worktree directory
-	Branch     string    `json:"branch"`      // Branch name associated with this worktree
-	CommitHash string    `json:"commit_hash"` // Current HEAD commit hash
-	IsMain     bool      `json:"is_main"`     // Whether this is the main worktree
-	CreatedAt  time.Time `json:"created_at"`  // Creation timestamp
+	Path           string          `json:"path"`                      // Absolute path to the worktree directory
+	Branch         string          `json:"branch"`                    // Branch name associated with this worktree
+	CommitHash     string          `json:"commit_hash"`               // Current HEAD commit hash
+	IsMain         bool            `json:"is_main"`                   // Whether this is the main worktree
+	CreatedAt      time.Time       `json:"created_at"`                // Creation timestamp
+	RepositoryInfo *RepositoryInfo `json:"repository_info,omitempty"` // Repository information for display templates
+}
+
+// RepositoryInfo contains parsed repository URL information for display purposes.
+type RepositoryInfo struct {
+	Host       string `json:"host"`       // e.g., "github.com"
+	Owner      string `json:"owner"`      // e.g., "user"
+	Repository string `json:"repository"` // e.g., "myapp"
 }
 
 // Branch represents a Git branch with its metadata.
@@ -31,10 +39,18 @@ type CommitInfo struct {
 // Config represents the application configuration.
 type Config struct {
 	Worktree           WorktreeConfig      `mapstructure:"worktree"`            // Worktree-related configuration
+	Ghq                GhqConfig           `mapstructure:"ghq"`                 // ghq integration configuration
 	Finder             FinderConfig        `mapstructure:"finder"`              // Fuzzy finder configuration
 	UI                 UIConfig            `mapstructure:"ui"`                  // UI-related configuration
 	Naming             NamingConfig        `mapstructure:"naming"`              // Naming and template configuration
 	RepositorySettings []RepositorySetting `mapstructure:"repository_settings"` // Per-repository setup/copy overrides
+}
+
+// GhqConfig contains ghq integration configuration options.
+type GhqConfig struct {
+	Enabled      bool   `mapstructure:"enabled"`       // Enable ghq integration mode (default: false)
+	WorktreesDir string `mapstructure:"worktrees_dir"` // Directory name for worktrees under ghq repos (default: ".worktrees")
+	AutoFiles    bool   `mapstructure:"auto_files"`    // Auto-generate .gitignore and README.md (default: true)
 }
 
 // RepositorySetting defines per-repository setup commands and files to copy for worktree creation.
@@ -63,8 +79,9 @@ type UIConfig struct {
 
 // NamingConfig contains directory naming and template configuration options.
 type NamingConfig struct {
-	Template      string            `mapstructure:"template"`       // Directory name template
-	SanitizeChars map[string]string `mapstructure:"sanitize_chars"` // Character replacement for branch names
+	Template        string            `mapstructure:"template"`         // Directory name template
+	DisplayTemplate string            `mapstructure:"display_template"` // Display template for fuzzy finder
+	SanitizeChars   map[string]string `mapstructure:"sanitize_chars"`   // Character replacement for branch names
 }
 
 // WorktreeStatus represents the current status of a worktree.

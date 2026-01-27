@@ -3,10 +3,12 @@ package finder
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/d-kuro/gwq/internal/git"
+	"github.com/d-kuro/gwq/internal/template"
 	"github.com/d-kuro/gwq/internal/tmux"
 	"github.com/d-kuro/gwq/internal/utils"
 	"github.com/d-kuro/gwq/pkg/models"
@@ -15,10 +17,18 @@ import (
 
 // Finder provides fuzzy finder functionality.
 type Finder struct {
-	git          *git.Git
-	config       *models.FinderConfig
-	useTildeHome bool
+	git              *git.Git
+	config           *models.FinderConfig
+	useTildeHome     bool
+	useIcons         bool
+	displayProcessor *template.DisplayProcessor
 }
+
+// Icons for worktree display (when ui.icons is enabled)
+const (
+	iconRepo     = "" // Repository icon (nerd font)
+	iconWorktree = "" // Branch icon (nerd font)
+)
 
 // New creates a new Finder instance.
 func New(g *git.Git, config *models.FinderConfig) *Finder {
@@ -28,12 +38,25 @@ func New(g *git.Git, config *models.FinderConfig) *Finder {
 	}
 }
 
-// NewWithUI creates a new Finder instance with UI configuration.
-func NewWithUI(g *git.Git, config *models.FinderConfig, uiConfig *models.UIConfig) *Finder {
+// NewWithUI creates a new Finder instance with UI and naming configuration.
+func NewWithUI(g *git.Git, config *models.FinderConfig, uiConfig *models.UIConfig, namingConfig *models.NamingConfig) *Finder {
+	var displayProcessor *template.DisplayProcessor
+	if namingConfig != nil && namingConfig.DisplayTemplate != "" {
+		processor, err := template.NewDisplayProcessor(namingConfig.DisplayTemplate)
+		if err != nil {
+			// Log warning and fall back to default display
+			fmt.Fprintf(os.Stderr, "[gwq] warning: invalid display_template: %v\n", err)
+		} else {
+			displayProcessor = processor
+		}
+	}
+
 	return &Finder{
-		git:          g,
-		config:       config,
-		useTildeHome: uiConfig.TildeHome,
+		git:              g,
+		config:           config,
+		useTildeHome:     uiConfig.TildeHome,
+		useIcons:         uiConfig.Icons,
+		displayProcessor: displayProcessor,
 	}
 }
 
@@ -59,16 +82,7 @@ func (f *Finder) SelectWorktree(worktrees []models.Worktree) (*models.Worktree, 
 	idx, err := fuzzyfinder.Find(
 		worktrees,
 		func(i int) string {
-			wt := worktrees[i]
-			marker := ""
-			if wt.IsMain {
-				marker = "[main] "
-			}
-			path := wt.Path
-			if f.useTildeHome {
-				path = utils.TildePath(path)
-			}
-			return fmt.Sprintf("%s%s (%s)", marker, wt.Branch, path)
+			return f.formatWorktreeForDisplay(worktrees[i])
 		},
 		opts...,
 	)
@@ -143,16 +157,7 @@ func (f *Finder) SelectMultipleWorktrees(worktrees []models.Worktree) ([]models.
 	indices, err := fuzzyfinder.FindMulti(
 		worktrees,
 		func(i int) string {
-			wt := worktrees[i]
-			marker := ""
-			if wt.IsMain {
-				marker = "[main] "
-			}
-			path := wt.Path
-			if f.useTildeHome {
-				path = utils.TildePath(path)
-			}
-			return fmt.Sprintf("%s%s (%s)", marker, wt.Branch, path)
+			return f.formatWorktreeForDisplay(worktrees[i])
 		},
 		opts...,
 	)
@@ -242,23 +247,81 @@ func formatDuration(d time.Duration) string {
 	case d < time.Minute:
 		return "just now"
 	case d < time.Hour:
-		mins := int(d.Minutes())
-		if mins == 1 {
-			return "1 min"
-		}
-		return fmt.Sprintf("%d mins", mins)
+		return formatUnit(int(d.Minutes()), "min")
 	case d < 24*time.Hour:
-		hours := int(d.Hours())
-		if hours == 1 {
-			return "1 hour"
-		}
-		return fmt.Sprintf("%d hours", hours)
+		return formatUnit(int(d.Hours()), "hour")
 	default:
-		days := int(d.Hours() / 24)
-		if days == 1 {
-			return "1 day"
+		return formatUnit(int(d.Hours()/24), "day")
+	}
+}
+
+func formatUnit(value int, unit string) string {
+	if value == 1 {
+		return fmt.Sprintf("1 %s", unit)
+	}
+	return fmt.Sprintf("%d %ss", value, unit)
+}
+
+// formatWorktreeForDisplay formats a worktree entry for display in the fuzzy finder.
+// For global mode with showRepoName=true, branch field contains owner/repo or owner/repo:branch.
+// When icons are enabled, it uses nerd font icons:
+// - Main repository:  owner/repo (path)
+// - Worktree:  owner/repo:branch (path)
+// When icons are disabled, it uses text prefixes:
+// - Main repository: [main] owner/repo (path)
+// - Worktree: owner/repo:branch (path)
+// If display_template is configured and RepositoryInfo is available, uses the custom template.
+func (f *Finder) formatWorktreeForDisplay(wt models.Worktree) string {
+	path := wt.Path
+	if f.useTildeHome {
+		path = utils.TildePath(path)
+	}
+
+	// Use custom template if configured and RepositoryInfo is available
+	if f.displayProcessor != nil && wt.RepositoryInfo != nil {
+		data := &template.DisplayTemplateData{
+			Host:       wt.RepositoryInfo.Host,
+			Owner:      wt.RepositoryInfo.Owner,
+			Repository: wt.RepositoryInfo.Repository,
+			Branch:     extractBranchName(wt.Branch),
+			Path:       path,
+			IsMain:     wt.IsMain,
 		}
-		return fmt.Sprintf("%d days", days)
+
+		if formatted, err := f.displayProcessor.Format(data); err == nil {
+			return formatted
+		}
+		// Fall through to default format on error
+	}
+
+	// Fallback: default display format
+	prefix := f.getWorktreePrefix(wt.IsMain)
+	if prefix == "" {
+		return fmt.Sprintf("%s (%s)", wt.Branch, path)
+	}
+	return fmt.Sprintf("%s %s (%s)", prefix, wt.Branch, path)
+}
+
+// extractBranchName extracts the branch name from "owner/repo:branch" format.
+// If there's no colon, returns the original string.
+func extractBranchName(displayBranch string) string {
+	if idx := strings.LastIndex(displayBranch, ":"); idx != -1 {
+		return displayBranch[idx+1:]
+	}
+	return displayBranch
+}
+
+// getWorktreePrefix returns the prefix for a worktree based on type and icon settings.
+func (f *Finder) getWorktreePrefix(isMain bool) string {
+	switch {
+	case f.useIcons && isMain:
+		return iconRepo
+	case f.useIcons:
+		return iconWorktree
+	case isMain:
+		return "[main]"
+	default:
+		return ""
 	}
 }
 
@@ -272,7 +335,11 @@ func (f *Finder) generateWorktreePreview(wt models.Worktree, maxLines int) strin
 		fmt.Sprintf("Branch: %s", wt.Branch),
 		fmt.Sprintf("Path: %s", path),
 		fmt.Sprintf("Commit: %s", truncateHash(wt.CommitHash)),
-		fmt.Sprintf("Created: %s", wt.CreatedAt.Format("2006-01-02 15:04")),
+	}
+
+	// Only show creation time if it's not zero (global worktrees may not have this info)
+	if !wt.CreatedAt.IsZero() {
+		preview = append(preview, fmt.Sprintf("Created: %s", wt.CreatedAt.Format("2006-01-02 15:04")))
 	}
 
 	if wt.IsMain {
@@ -300,12 +367,7 @@ func (f *Finder) generateWorktreePreview(wt models.Worktree, maxLines int) strin
 
 // generateBranchPreview generates preview content for a branch.
 func (f *Finder) generateBranchPreview(branch models.Branch, maxLines int) string {
-	branchType := "Local"
-	if branch.IsCurrent {
-		branchType = "Current"
-	} else if branch.IsRemote {
-		branchType = "Remote"
-	}
+	branchType := getBranchType(branch)
 
 	preview := []string{
 		fmt.Sprintf("Branch: %s", branch.Name),
@@ -317,6 +379,17 @@ func (f *Finder) generateBranchPreview(branch models.Branch, maxLines int) strin
 	}
 
 	return strings.Join(preview[:min(len(preview), maxLines)], "\n")
+}
+
+func getBranchType(branch models.Branch) string {
+	switch {
+	case branch.IsCurrent:
+		return "Current"
+	case branch.IsRemote:
+		return "Remote"
+	default:
+		return "Local"
+	}
 }
 
 // truncateHash truncates a commit hash to 8 characters.

@@ -40,6 +40,9 @@ func init() {
 
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true
+
+	// Global --ghq flag for enabling/disabling ghq integration mode
+	rootCmd.PersistentFlags().Bool("ghq", false, "Enable ghq integration mode (--ghq or --ghq=false)")
 }
 
 // initConfig reads in config file and ENV variables if set.

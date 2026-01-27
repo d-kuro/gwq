@@ -208,3 +208,149 @@ func TestProcessor_GeneratePath_BranchOnlySanitization(t *testing.T) {
 		t.Errorf("GeneratePath() = %s, want %s", result, expected)
 	}
 }
+
+func TestNewDisplayProcessor(t *testing.T) {
+	tests := []struct {
+		name        string
+		template    string
+		expectError bool
+	}{
+		{
+			name:        "valid template",
+			template:    "{{.Host}}/{{.Owner}}/{{.Repository}}:{{.Branch}}",
+			expectError: false,
+		},
+		{
+			name:        "simple template",
+			template:    "{{.Repository}}:{{.Branch}}",
+			expectError: false,
+		},
+		{
+			name:        "invalid template syntax",
+			template:    "{{.Repository",
+			expectError: true,
+		},
+		{
+			name:        "empty template",
+			template:    "",
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewDisplayProcessor(tt.template)
+			if (err != nil) != tt.expectError {
+				t.Errorf("NewDisplayProcessor() error = %v, expectError %v", err, tt.expectError)
+			}
+		})
+	}
+}
+
+func TestDisplayProcessor_Format(t *testing.T) {
+	tests := []struct {
+		name        string
+		template    string
+		data        *DisplayTemplateData
+		expected    string
+		expectError bool
+	}{
+		{
+			name:     "full format with path",
+			template: "{{.Host}}/{{.Owner}}/{{.Repository}}:{{.Branch}} ({{.Path}})",
+			data: &DisplayTemplateData{
+				Host:       "github.com",
+				Owner:      "user",
+				Repository: "myapp",
+				Branch:     "feature",
+				Path:       "~/ghq/github.com/user/myapp",
+			},
+			expected: "github.com/user/myapp:feature (~/ghq/github.com/user/myapp)",
+		},
+		{
+			name:     "simple without path",
+			template: "{{.Repository}}:{{.Branch}}",
+			data: &DisplayTemplateData{
+				Repository: "myapp",
+				Branch:     "feature",
+			},
+			expected: "myapp:feature",
+		},
+		{
+			name:     "path first",
+			template: "{{.Path}} [{{.Branch}}]",
+			data: &DisplayTemplateData{
+				Branch: "feature",
+				Path:   "~/project",
+			},
+			expected: "~/project [feature]",
+		},
+		{
+			name:     "with IsMain conditional - main worktree",
+			template: "{{.Repository}}{{if not .IsMain}}:{{.Branch}}{{end}}",
+			data: &DisplayTemplateData{
+				Repository: "myapp",
+				Branch:     "main",
+				IsMain:     true,
+			},
+			expected: "myapp",
+		},
+		{
+			name:     "with IsMain conditional - worktree",
+			template: "{{.Repository}}{{if not .IsMain}}:{{.Branch}}{{end}}",
+			data: &DisplayTemplateData{
+				Repository: "myapp",
+				Branch:     "feature",
+				IsMain:     false,
+			},
+			expected: "myapp:feature",
+		},
+		{
+			name:     "owner/repo format",
+			template: "{{.Owner}}/{{.Repository}}:{{.Branch}} ({{.Path}})",
+			data: &DisplayTemplateData{
+				Owner:      "user",
+				Repository: "myapp",
+				Branch:     "feature",
+				Path:       "~/ghq/github.com/user/myapp",
+			},
+			expected: "user/myapp:feature (~/ghq/github.com/user/myapp)",
+		},
+		{
+			name:     "branch only with path",
+			template: "{{.Branch}} ({{.Path}})",
+			data: &DisplayTemplateData{
+				Branch: "feature",
+				Path:   "~/ghq/github.com/user/myapp",
+			},
+			expected: "feature (~/ghq/github.com/user/myapp)",
+		},
+		{
+			name:     "invalid field reference",
+			template: "{{.InvalidField}}",
+			data: &DisplayTemplateData{
+				Repository: "myapp",
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			processor, err := NewDisplayProcessor(tt.template)
+			if err != nil {
+				t.Fatalf("Failed to create processor: %v", err)
+			}
+
+			result, err := processor.Format(tt.data)
+			if (err != nil) != tt.expectError {
+				t.Errorf("Format() error = %v, expectError %v", err, tt.expectError)
+				return
+			}
+
+			if !tt.expectError && result != tt.expected {
+				t.Errorf("Format() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}

@@ -64,20 +64,35 @@ func GenerateWorktreePath(baseDir string, repoInfo *RepositoryInfo, branch strin
 
 // normalizeURL converts various git URL formats to a standard HTTP(S) format for parsing.
 func normalizeURL(repoURL string) string {
-	// Convert SSH format to HTTPS format for easier parsing
-	if strings.HasPrefix(repoURL, "git@") {
+	// Handle AWS CodeCommit credential helper format
+	// codecommit::<region>://<profile>@<repo-name> or codecommit::<region>://<repo-name>
+	if strings.HasPrefix(repoURL, "codecommit::") {
+		if converted := normalizeCodeCommitURL(repoURL); converted != "" {
+			return converted
+		}
+	}
+
+	// Convert SSH formats to HTTPS for easier parsing
+	switch {
+	case strings.HasPrefix(repoURL, "git@"):
 		// git@github.com:user/repo.git -> https://github.com/user/repo.git
 		if host, path, found := strings.Cut(repoURL, ":"); found {
 			host = strings.TrimPrefix(host, "git@")
 			repoURL = fmt.Sprintf("https://%s/%s", host, path)
 		}
-	} else if strings.HasPrefix(repoURL, "ssh://git@") {
+	case strings.HasPrefix(repoURL, "ssh://git@"):
+		// Handle both colon and slash formats:
 		// ssh://git@github.com:user/repo.git -> https://github.com/user/repo.git
-		repoURL = strings.TrimPrefix(repoURL, "ssh://")
-		if host, path, found := strings.Cut(repoURL, ":"); found {
-			host = strings.TrimPrefix(host, "git@")
+		// ssh://git@github.com/user/repo.git -> https://github.com/user/repo.git
+		rest := strings.TrimPrefix(repoURL, "ssh://git@")
+		if host, path, hasColon := strings.Cut(rest, ":"); hasColon {
 			repoURL = fmt.Sprintf("https://%s/%s", host, path)
+		} else {
+			repoURL = "https://" + rest
 		}
+	case strings.HasPrefix(repoURL, "ssh://"):
+		// ssh://github.com/user/repo.git -> https://github.com/user/repo.git
+		repoURL = "https://" + strings.TrimPrefix(repoURL, "ssh://")
 	}
 
 	// Ensure https:// prefix
@@ -86,6 +101,34 @@ func normalizeURL(repoURL string) string {
 	}
 
 	return repoURL
+}
+
+// normalizeCodeCommitURL converts AWS CodeCommit credential helper URL to HTTPS format.
+// Format: codecommit::<region>://<profile>@<repo-name> or codecommit::<region>://<repo-name>
+// Result: https://git-codecommit.<region>.amazonaws.com/repos/<repo-name>
+// Note: We use /repos/<repo-name> instead of /v1/repos/<repo-name> for simpler path parsing.
+func normalizeCodeCommitURL(repoURL string) string {
+	// Remove "codecommit::" prefix
+	rest := strings.TrimPrefix(repoURL, "codecommit::")
+
+	// Split by "://" to get region and repo info
+	// Format: <region>://<profile>@<repo-name> or <region>://<repo-name>
+	parts := strings.SplitN(rest, "://", 2)
+	if len(parts) != 2 {
+		return ""
+	}
+
+	region := parts[0]
+	repoInfo := parts[1]
+
+	// Extract repo name (remove profile@ if present)
+	repoName := repoInfo
+	if idx := strings.LastIndex(repoInfo, "@"); idx != -1 {
+		repoName = repoInfo[idx+1:]
+	}
+
+	// Build HTTPS URL (using /repos/<repo-name> for simpler path parsing)
+	return fmt.Sprintf("https://git-codecommit.%s.amazonaws.com/repos/%s", region, repoName)
 }
 
 // sanitizeBranchName converts branch names to filesystem-safe names.
