@@ -46,21 +46,12 @@ func TestNormalizeURL(t *testing.T) {
 			input:    "ssh://github.com/user/repo.git",
 			expected: "https://github.com/user/repo.git",
 		},
-		// AWS CodeCommit credential helper format
+		// AWS CodeCommit credential helper format is no longer normalized
+		// codecommit:: URLs will go through the default https:// prefix path
 		{
-			name:     "codecommit with profile",
+			name:     "codecommit with profile passes through",
 			input:    "codecommit::ap-northeast-1://myprofile@my-app-backend",
-			expected: "https://git-codecommit.ap-northeast-1.amazonaws.com/repos/my-app-backend",
-		},
-		{
-			name:     "codecommit without profile",
-			input:    "codecommit::us-east-1://simple-repo",
-			expected: "https://git-codecommit.us-east-1.amazonaws.com/repos/simple-repo",
-		},
-		{
-			name:     "codecommit with different region",
-			input:    "codecommit::eu-west-1://dev-profile@frontend-app",
-			expected: "https://git-codecommit.eu-west-1.amazonaws.com/repos/frontend-app",
+			expected: "https://codecommit::ap-northeast-1://myprofile@my-app-backend",
 		},
 	}
 
@@ -74,7 +65,7 @@ func TestNormalizeURL(t *testing.T) {
 	}
 }
 
-func TestParseRepositoryURL_CodeCommit(t *testing.T) {
+func TestParseRepositoryURL(t *testing.T) {
 	tests := []struct {
 		name          string
 		input         string
@@ -84,29 +75,62 @@ func TestParseRepositoryURL_CodeCommit(t *testing.T) {
 		expectedPath  string
 		expectError   bool
 	}{
+		// GitHub (existing compatibility)
 		{
-			name:          "codecommit with profile",
-			input:         "codecommit::ap-northeast-1://myprofile@my-app-backend",
+			name:          "GitHub HTTPS",
+			input:         "https://github.com/user/repo.git",
+			expectedHost:  "github.com",
+			expectedOwner: "user",
+			expectedRepo:  "repo",
+			expectedPath:  "github.com/user/repo",
+		},
+		{
+			name:          "GitHub SSH",
+			input:         "git@github.com:user/repo.git",
+			expectedHost:  "github.com",
+			expectedOwner: "user",
+			expectedRepo:  "repo",
+			expectedPath:  "github.com/user/repo",
+		},
+		// GitLab subgroup support
+		{
+			name:          "GitLab subgroup HTTPS",
+			input:         "https://gitlab.com/group/subgroup/project.git",
+			expectedHost:  "gitlab.com",
+			expectedOwner: "group/subgroup",
+			expectedRepo:  "project",
+			expectedPath:  "gitlab.com/group/subgroup/project",
+		},
+		{
+			name:          "GitLab deep nesting SSH",
+			input:         "git@gitlab.com:group/sub1/sub2/project.git",
+			expectedHost:  "gitlab.com",
+			expectedOwner: "group/sub1/sub2",
+			expectedRepo:  "project",
+			expectedPath:  "gitlab.com/group/sub1/sub2/project",
+		},
+		// CodeCommit HTTPS/SSH (standard URL format works)
+		{
+			name:          "CodeCommit HTTPS",
+			input:         "https://git-codecommit.ap-northeast-1.amazonaws.com/v1/repos/my-app",
 			expectedHost:  "git-codecommit.ap-northeast-1.amazonaws.com",
-			expectedOwner: "repos",
-			expectedRepo:  "my-app-backend",
-			expectedPath:  "git-codecommit.ap-northeast-1.amazonaws.com/repos/my-app-backend",
+			expectedOwner: "v1/repos",
+			expectedRepo:  "my-app",
+			expectedPath:  "git-codecommit.ap-northeast-1.amazonaws.com/v1/repos/my-app",
 		},
 		{
-			name:          "codecommit without profile",
-			input:         "codecommit::us-east-1://simple-repo",
-			expectedHost:  "git-codecommit.us-east-1.amazonaws.com",
-			expectedOwner: "repos",
-			expectedRepo:  "simple-repo",
-			expectedPath:  "git-codecommit.us-east-1.amazonaws.com/repos/simple-repo",
+			name:          "CodeCommit SSH",
+			input:         "ssh://git-codecommit.ap-northeast-1.amazonaws.com/v1/repos/my-app",
+			expectedHost:  "git-codecommit.ap-northeast-1.amazonaws.com",
+			expectedOwner: "v1/repos",
+			expectedRepo:  "my-app",
+			expectedPath:  "git-codecommit.ap-northeast-1.amazonaws.com/v1/repos/my-app",
 		},
+		// codecommit:: credential helper format is not supported
 		{
-			name:          "codecommit with different region",
-			input:         "codecommit::eu-west-1://dev-profile@frontend-app",
-			expectedHost:  "git-codecommit.eu-west-1.amazonaws.com",
-			expectedOwner: "repos",
-			expectedRepo:  "frontend-app",
-			expectedPath:  "git-codecommit.eu-west-1.amazonaws.com/repos/frontend-app",
+			name:        "codecommit credential helper format returns error",
+			input:       "codecommit::ap-northeast-1://profile@repo",
+			expectError: true,
 		},
 	}
 

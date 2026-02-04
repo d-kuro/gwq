@@ -293,12 +293,12 @@ func TestConvertToWorktreeModels_DisplayPathOverridesFullPath(t *testing.T) {
 	}
 }
 
-func TestConvertToWorktreeModels_DisplayPathWithBranch(t *testing.T) {
+func TestConvertToWorktreeModels_DisplayPathWithDirname(t *testing.T) {
 	repoInfo, _ := url.ParseRepositoryURL("https://github.com/testuser/testrepo.git")
 	entries := []*GlobalWorktreeEntry{
 		{
 			RepositoryInfo: repoInfo,
-			DisplayPath:    "github.com/testuser/testrepo",
+			DisplayPath:    "github.com/testuser/testrepo:feature-test", // DisplayPath already includes :dirname
 			Branch:         "feature/test",
 			Path:           "/Users/test/ghq/github.com/testuser/testrepo/.worktrees/feature-test",
 			CommitHash:     "def456",
@@ -312,8 +312,8 @@ func TestConvertToWorktreeModels_DisplayPathWithBranch(t *testing.T) {
 		t.Fatalf("Expected 1 worktree, got %d", len(worktrees))
 	}
 
-	// Should use DisplayPath with branch
-	expected := "github.com/testuser/testrepo:feature/test"
+	// Should use DisplayPath as-is (already contains :dirname)
+	expected := "github.com/testuser/testrepo:feature-test"
 	if worktrees[0].Branch != expected {
 		t.Errorf("Expected branch '%s', got '%s'", expected, worktrees[0].Branch)
 	}
@@ -362,6 +362,62 @@ func TestConvertToWorktreeModels_PreservesRepositoryInfo(t *testing.T) {
 	// Second entry should have nil RepositoryInfo
 	if worktrees[1].RepositoryInfo != nil {
 		t.Error("Expected RepositoryInfo to be nil for second worktree")
+	}
+}
+
+func TestFormatBranchDisplay(t *testing.T) {
+	repoInfo, _ := url.ParseRepositoryURL("https://github.com/aws/repo.git")
+	tests := []struct {
+		name         string
+		entry        *GlobalWorktreeEntry
+		showRepoName bool
+		expected     string
+	}{
+		{
+			name:         "DisplayPath set - returns as-is",
+			entry:        &GlobalWorktreeEntry{DisplayPath: "github.com/aws/repo", Branch: "main", IsMain: true},
+			showRepoName: true,
+			expected:     "github.com/aws/repo",
+		},
+		{
+			name:         "DisplayPath with dirname for worktree",
+			entry:        &GlobalWorktreeEntry{DisplayPath: "github.com/aws/repo:feature-1", Branch: "feature-1", IsMain: false},
+			showRepoName: true,
+			expected:     "github.com/aws/repo:feature-1",
+		},
+		{
+			name:         "No DisplayPath, RepositoryInfo set, non-main",
+			entry:        &GlobalWorktreeEntry{RepositoryInfo: repoInfo, Branch: "feature", IsMain: false},
+			showRepoName: true,
+			expected:     "repo:feature",
+		},
+		{
+			name:         "No DisplayPath, RepositoryInfo set, main",
+			entry:        &GlobalWorktreeEntry{RepositoryInfo: repoInfo, Branch: "main", IsMain: true},
+			showRepoName: true,
+			expected:     "repo",
+		},
+		{
+			name:         "Both nil - returns branch",
+			entry:        &GlobalWorktreeEntry{Branch: "main", IsMain: false},
+			showRepoName: true,
+			expected:     "main",
+		},
+		{
+			name:         "showRepoName false - returns branch",
+			entry:        &GlobalWorktreeEntry{DisplayPath: "github.com/aws/repo", Branch: "main", IsMain: true},
+			showRepoName: false,
+			expected:     "main",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatBranchDisplay(tt.entry, tt.showRepoName)
+			if result != tt.expected {
+				t.Errorf("formatBranchDisplay() = %q, want %q", result, tt.expected)
+			}
+		})
 	}
 }
 

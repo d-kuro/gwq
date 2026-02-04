@@ -21,6 +21,7 @@ type Finder struct {
 	config           *models.FinderConfig
 	useTildeHome     bool
 	useIcons         bool
+	showPath         bool
 	displayProcessor *template.DisplayProcessor
 }
 
@@ -33,8 +34,9 @@ const (
 // New creates a new Finder instance.
 func New(g *git.Git, config *models.FinderConfig) *Finder {
 	return &Finder{
-		git:    g,
-		config: config,
+		git:      g,
+		config:   config,
+		showPath: true,
 	}
 }
 
@@ -56,8 +58,15 @@ func NewWithUI(g *git.Git, config *models.FinderConfig, uiConfig *models.UIConfi
 		config:           config,
 		useTildeHome:     uiConfig.TildeHome,
 		useIcons:         uiConfig.Icons,
+		showPath:         true,
 		displayProcessor: displayProcessor,
 	}
+}
+
+// SetShowPath controls whether the path suffix (path) is shown in worktree display.
+// When set to false, the path is omitted from the default display format.
+func (f *Finder) SetShowPath(show bool) {
+	f.showPath = show
 }
 
 // SelectWorktree displays a fuzzy finder for worktree selection.
@@ -296,10 +305,16 @@ func (f *Finder) formatWorktreeForDisplay(wt models.Worktree) string {
 
 	// Fallback: default display format
 	prefix := f.getWorktreePrefix(wt.IsMain)
-	if prefix == "" {
-		return fmt.Sprintf("%s (%s)", wt.Branch, path)
+	if f.showPath {
+		if prefix == "" {
+			return fmt.Sprintf("%s (%s)", wt.Branch, path)
+		}
+		return fmt.Sprintf("%s %s (%s)", prefix, wt.Branch, path)
 	}
-	return fmt.Sprintf("%s %s (%s)", prefix, wt.Branch, path)
+	if prefix == "" {
+		return wt.Branch
+	}
+	return fmt.Sprintf("%s %s", prefix, wt.Branch)
 }
 
 // extractBranchName extracts the branch name from "owner/repo:branch" format.

@@ -71,10 +71,7 @@ func readWorktreeDetailsFast(worktreePath string) (repoURL string, repoInfo *url
 		return "", nil, "", "", err
 	}
 
-	repoInfo, err = url.ParseRepositoryURL(repoURL)
-	if err != nil {
-		return "", nil, "", "", err
-	}
+	repoInfo, _ = url.ParseRepositoryURL(repoURL)
 
 	return repoURL, repoInfo, branch, commitHash, nil
 }

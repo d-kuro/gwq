@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/d-kuro/gwq/internal/url"
 	"github.com/d-kuro/gwq/pkg/models"
 )
 
@@ -93,6 +94,20 @@ func (g *Git) ListWorktrees() ([]models.Worktree, error) {
 					worktrees[i].IsMain = true
 					break
 				}
+			}
+		}
+	}
+
+	// Set RepositoryInfo from remote URL (best-effort)
+	if repoURL, err := g.GetRepositoryURL(); err == nil {
+		if repoInfo, err := url.ParseRepositoryURL(repoURL); err == nil {
+			modelInfo := &models.RepositoryInfo{
+				Host:       repoInfo.Host,
+				Owner:      repoInfo.Owner,
+				Repository: repoInfo.Repository,
+			}
+			for i := range worktrees {
+				worktrees[i].RepositoryInfo = modelInfo
 			}
 		}
 	}

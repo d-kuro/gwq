@@ -242,6 +242,11 @@ func DiscoverGlobalWorktrees(baseDir string) ([]*GlobalWorktreeEntry, error) {
 			return filepath.SkipDir
 		}
 
+		// Set DisplayPath as basedir-relative path
+		if rel, err := filepath.Rel(expandedDir, path); err == nil {
+			entry.DisplayPath = rel
+		}
+
 		entries = append(entries, entry)
 		return filepath.SkipDir
 	})
@@ -257,14 +262,11 @@ func DiscoverGlobalWorktrees(baseDir string) ([]*GlobalWorktreeEntry, error) {
 func extractWorktreeInfo(worktreePath string) (*GlobalWorktreeEntry, error) {
 	g := git.New(worktreePath)
 
-	repoURL, err := g.GetRepositoryURL()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get repository URL: %w", err)
-	}
-
-	repoInfo, err := url.ParseRepositoryURL(repoURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse repository URL: %w", err)
+	var repoURL string
+	var repoInfo *url.RepositoryInfo
+	if rawURL, err := g.GetRepositoryURL(); err == nil {
+		repoURL = rawURL
+		repoInfo, _ = url.ParseRepositoryURL(repoURL)
 	}
 
 	branch, err := getCurrentBranch(worktreePath)
@@ -329,23 +331,20 @@ func formatBranchDisplay(entry *GlobalWorktreeEntry, showRepoName bool) string {
 		return entry.Branch
 	}
 
-	// Use DisplayPath if available (ghq mode with custom relative path)
+	// Use DisplayPath if available (already includes :dirname for worktrees)
 	if entry.DisplayPath != "" {
-		if entry.IsMain {
-			return entry.DisplayPath
-		}
-		return entry.DisplayPath + ":" + entry.Branch
+		return entry.DisplayPath
 	}
 
 	// Default: use Repository name only (not FullPath)
-	if entry.RepositoryInfo == nil {
-		return entry.Branch
+	if entry.RepositoryInfo != nil {
+		if entry.IsMain {
+			return entry.RepositoryInfo.Repository
+		}
+		return entry.RepositoryInfo.Repository + ":" + entry.Branch
 	}
 
-	if entry.IsMain {
-		return entry.RepositoryInfo.Repository
-	}
-	return entry.RepositoryInfo.Repository + ":" + entry.Branch
+	return entry.Branch
 }
 
 // ConvertToWorktreeModels converts GlobalWorktreeEntry to models.Worktree.

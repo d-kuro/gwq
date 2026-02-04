@@ -39,8 +39,8 @@ func ParseRepositoryURL(repoURL string) (*RepositoryInfo, error) {
 		return nil, fmt.Errorf("invalid repository path: %s", parsedURL.Path)
 	}
 
-	owner := pathParts[0]
-	repository := pathParts[1]
+	owner := strings.Join(pathParts[:len(pathParts)-1], "/")
+	repository := pathParts[len(pathParts)-1]
 
 	// Remove .git suffix if present
 	repository = strings.TrimSuffix(repository, ".git")
@@ -64,14 +64,6 @@ func GenerateWorktreePath(baseDir string, repoInfo *RepositoryInfo, branch strin
 
 // normalizeURL converts various git URL formats to a standard HTTP(S) format for parsing.
 func normalizeURL(repoURL string) string {
-	// Handle AWS CodeCommit credential helper format
-	// codecommit::<region>://<profile>@<repo-name> or codecommit::<region>://<repo-name>
-	if strings.HasPrefix(repoURL, "codecommit::") {
-		if converted := normalizeCodeCommitURL(repoURL); converted != "" {
-			return converted
-		}
-	}
-
 	// Convert SSH formats to HTTPS for easier parsing
 	switch {
 	case strings.HasPrefix(repoURL, "git@"):
@@ -101,34 +93,6 @@ func normalizeURL(repoURL string) string {
 	}
 
 	return repoURL
-}
-
-// normalizeCodeCommitURL converts AWS CodeCommit credential helper URL to HTTPS format.
-// Format: codecommit::<region>://<profile>@<repo-name> or codecommit::<region>://<repo-name>
-// Result: https://git-codecommit.<region>.amazonaws.com/repos/<repo-name>
-// Note: We use /repos/<repo-name> instead of /v1/repos/<repo-name> for simpler path parsing.
-func normalizeCodeCommitURL(repoURL string) string {
-	// Remove "codecommit::" prefix
-	rest := strings.TrimPrefix(repoURL, "codecommit::")
-
-	// Split by "://" to get region and repo info
-	// Format: <region>://<profile>@<repo-name> or <region>://<repo-name>
-	parts := strings.SplitN(rest, "://", 2)
-	if len(parts) != 2 {
-		return ""
-	}
-
-	region := parts[0]
-	repoInfo := parts[1]
-
-	// Extract repo name (remove profile@ if present)
-	repoName := repoInfo
-	if idx := strings.LastIndex(repoInfo, "@"); idx != -1 {
-		repoName = repoInfo[idx+1:]
-	}
-
-	// Build HTTPS URL (using /repos/<repo-name> for simpler path parsing)
-	return fmt.Sprintf("https://git-codecommit.%s.amazonaws.com/repos/%s", region, repoName)
 }
 
 // sanitizeBranchName converts branch names to filesystem-safe names.

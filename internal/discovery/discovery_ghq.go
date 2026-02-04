@@ -70,9 +70,9 @@ func discoverGhqWorktrees(worktreesDir string) ([]*GlobalWorktreeEntry, error) {
 			}
 			continue
 		}
-		// Set DisplayPath for worktrees (use main repo's DisplayPath)
+		// Set DisplayPath for worktrees (main repo's DisplayPath + :dirname)
 		for _, wtEntry := range worktreeEntries {
-			wtEntry.DisplayPath = mainEntry.DisplayPath
+			wtEntry.DisplayPath = mainEntry.DisplayPath + ":" + filepath.Base(wtEntry.Path)
 		}
 		entries = append(entries, worktreeEntries...)
 	}
@@ -116,14 +116,11 @@ func extractMainRepoInfo(repoPath string) (*GlobalWorktreeEntry, error) {
 
 	g := git.New(repoPath)
 
-	repoURL, err := g.GetRepositoryURL()
-	if err != nil {
-		return nil, err
-	}
-
-	repoInfo, err := url.ParseRepositoryURL(repoURL)
-	if err != nil {
-		return nil, err
+	var repoURL string
+	var repoInfo *url.RepositoryInfo
+	if rawURL, err := g.GetRepositoryURL(); err == nil {
+		repoURL = rawURL
+		repoInfo, _ = url.ParseRepositoryURL(repoURL)
 	}
 
 	branch, _ := getCurrentBranch(repoPath)
@@ -278,9 +275,9 @@ func extractRepoAndWorktrees(repoPath, worktreesDir string, validWorktreesDir bo
 				fmt.Fprintf(os.Stderr, "[gwq] warning: failed to discover worktrees in %s: %v\n", wtDir, err)
 			}
 		} else {
-			// Set DisplayPath for worktrees (use main repo's DisplayPath)
+			// Set DisplayPath for worktrees (main repo's DisplayPath + :dirname)
 			for _, wtEntry := range wtEntries {
-				wtEntry.DisplayPath = mainEntry.DisplayPath
+				wtEntry.DisplayPath = mainEntry.DisplayPath + ":" + filepath.Base(wtEntry.Path)
 			}
 			entries = append(entries, wtEntries...)
 		}

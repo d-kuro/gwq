@@ -97,7 +97,19 @@ func DiscoverGlobalWorktreesParallel(baseDir string, opts *DiscoverOptions) ([]*
 
 	// Phase 2: Extract worktree info with worker pool
 	maxWorkers := getMaxWorkers(opts)
-	return extractWorktreeInfoWithWorkerPool(worktreePaths, maxWorkers)
+	entries, err := extractWorktreeInfoWithWorkerPool(worktreePaths, maxWorkers)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set DisplayPath as basedir-relative path
+	for _, entry := range entries {
+		if rel, relErr := filepath.Rel(expandedDir, entry.Path); relErr == nil {
+			entry.DisplayPath = rel
+		}
+	}
+
+	return entries, nil
 }
 
 // collectWorktreePaths walks a directory and collects all worktree paths.
@@ -289,6 +301,13 @@ func DiscoverGlobalWorktreesPipeline(baseDir string, opts *DiscoverOptions) ([]*
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to walk directory: %w", err)
+	}
+
+	// Set DisplayPath as basedir-relative path
+	for _, entry := range entries {
+		if rel, relErr := filepath.Rel(expandedDir, entry.Path); relErr == nil {
+			entry.DisplayPath = rel
+		}
 	}
 
 	return entries, nil

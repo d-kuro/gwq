@@ -75,10 +75,13 @@ func (ctx *CommandContext) GetFinder() *finder.Finder {
 
 // GetGlobalFinder returns a finder instance for global operations that don't require a git repository.
 // This creates a finder with an empty git instance, suitable for global worktree operations.
+// Path display is disabled because the Branch field already contains the display path.
 func (ctx *CommandContext) GetGlobalFinder() *finder.Finder {
 	// For global operations, we use an empty git instance
 	emptyGit := &git.Git{}
-	return finder.NewWithUI(emptyGit, &ctx.Config.Finder, &ctx.Config.UI, &ctx.Config.Naming)
+	f := finder.NewWithUI(emptyGit, &ctx.Config.Finder, &ctx.Config.UI, &ctx.Config.Naming)
+	f.SetShowPath(false)
+	return f
 }
 
 // Factory functions for commands that haven't been refactored to use CommandContext yet
@@ -89,9 +92,12 @@ func CreateFinder(g *git.Git, cfg *models.Config) *finder.Finder {
 }
 
 // CreateGlobalFinder creates a finder instance for global operations.
+// Path display is disabled because the Branch field already contains the display path.
 func CreateGlobalFinder(cfg *models.Config) *finder.Finder {
 	emptyGit := &git.Git{}
-	return finder.NewWithUI(emptyGit, &cfg.Finder, &cfg.UI, &cfg.Naming)
+	f := finder.NewWithUI(emptyGit, &cfg.Finder, &cfg.UI, &cfg.Naming)
+	f.SetShowPath(false)
+	return f
 }
 
 // DiscoverGlobalWorktrees discovers global worktrees when -g flag is used.
