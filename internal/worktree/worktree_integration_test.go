@@ -48,7 +48,7 @@ func TestManagerAdd_Integration(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(oldwd) }()
 
-	mockG := &mockGit{}
+	mockG := &mockGit{mainWorktreeRoot: repoDir}
 	m := New(mockG, cfg)
 
 	_, err = m.Add("feature/test", filepath.Join(worktreeDir, "wt1"), false)

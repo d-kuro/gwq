@@ -314,3 +314,98 @@ func TestFormatProcess(t *testing.T) {
 		})
 	}
 }
+
+func TestParseGitStatusFiles(t *testing.T) {
+	tests := []struct {
+		name     string
+		output   string
+		expected []string
+	}{
+		{
+			name:     "simple modified file",
+			output:   " M file.txt\x00",
+			expected: []string{"file.txt"},
+		},
+		{
+			name:     "file with spaces",
+			output:   " M path with spaces/file name.txt\x00",
+			expected: []string{"path with spaces/file name.txt"},
+		},
+		{
+			name:     "renamed file in index",
+			output:   "R  old.txt\x00new.txt\x00",
+			expected: []string{"new.txt"},
+		},
+		{
+			name:     "copied file in index",
+			output:   "C  source.txt\x00dest.txt\x00",
+			expected: []string{"dest.txt"},
+		},
+		{
+			name:     "mixed changes",
+			output:   " M modified.txt\x00R  old.txt\x00renamed.txt\x00?? untracked.txt\x00",
+			expected: []string{"modified.txt", "renamed.txt", "untracked.txt"},
+		},
+		{
+			name:     "rename in worktree (Y side)",
+			output:   " R old.txt\x00new.txt\x00",
+			expected: []string{"new.txt"},
+		},
+		{
+			name:     "copy in worktree (Y side)",
+			output:   " C source.txt\x00copy.txt\x00",
+			expected: []string{"copy.txt"},
+		},
+		{
+			name:     "file starting with space",
+			output:   " M  leading-space.txt\x00",
+			expected: []string{" leading-space.txt"},
+		},
+		{
+			name:     "added file",
+			output:   "A  newfile.txt\x00",
+			expected: []string{"newfile.txt"},
+		},
+		{
+			name:     "deleted file",
+			output:   " D deleted.txt\x00",
+			expected: []string{"deleted.txt"},
+		},
+		{
+			name:     "untracked file",
+			output:   "?? untracked.txt\x00",
+			expected: []string{"untracked.txt"},
+		},
+		{
+			name:     "ignored file (if shown)",
+			output:   "!! ignored.txt\x00",
+			expected: []string{"ignored.txt"},
+		},
+		{
+			name:     "empty output",
+			output:   "",
+			expected: nil,
+		},
+		{
+			name:     "only null terminator",
+			output:   "\x00",
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseGitStatusFiles(tt.output)
+			if len(result) != len(tt.expected) {
+				t.Errorf("parseGitStatusFiles() returned %d items, want %d", len(result), len(tt.expected))
+				t.Errorf("got: %v, want: %v", result, tt.expected)
+				return
+			}
+			for i, got := range result {
+				if got != tt.expected[i] {
+					t.Errorf("parseGitStatusFiles()[%d] = %q, want %q", i, got, tt.expected[i])
+				}
+			}
+		})
+	}
+}

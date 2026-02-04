@@ -57,6 +57,9 @@ func runList(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Process --ghq flag to enable/disable ghq integration mode
+	ctx.resolveGhqFlag(cmd)
+
 	return ctx.WithGlobalLocalSupport(
 		listGlobal,
 		func(ctx *CommandContext) error {
@@ -91,11 +94,7 @@ func showGlobalWorktrees(ctx *CommandContext) error {
 		return nil
 	}
 
-	// Convert from []*models.Worktree to []models.Worktree for printer
-	var worktrees []models.Worktree
-	for _, w := range worktreePointers {
-		worktrees = append(worktrees, *w)
-	}
+	worktrees := derefWorktrees(worktreePointers)
 
 	if listJSON {
 		return ctx.Printer.PrintWorktreesJSON(worktrees)
@@ -103,4 +102,13 @@ func showGlobalWorktrees(ctx *CommandContext) error {
 
 	ctx.Printer.PrintWorktrees(worktrees, listVerbose)
 	return nil
+}
+
+// derefWorktrees converts a slice of pointers to a slice of values.
+func derefWorktrees(pointers []*models.Worktree) []models.Worktree {
+	result := make([]models.Worktree, len(pointers))
+	for i, p := range pointers {
+		result[i] = *p
+	}
+	return result
 }

@@ -516,6 +516,63 @@ func TestRunCommand(t *testing.T) {
 	}
 }
 
+func TestListWorktrees_RepositoryInfoWithRemote(t *testing.T) {
+	repo := NewTestRepository(t)
+	g := New(repo.Path)
+
+	// Add a remote origin
+	if err := repo.run("remote", "add", "origin", "https://github.com/testuser/testrepo.git"); err != nil {
+		t.Fatalf("Failed to add remote: %v", err)
+	}
+
+	worktrees, err := g.ListWorktrees()
+	if err != nil {
+		t.Fatalf("ListWorktrees() error = %v", err)
+	}
+
+	if len(worktrees) == 0 {
+		t.Fatal("Expected at least one worktree")
+	}
+
+	// All worktrees should have RepositoryInfo set
+	for _, wt := range worktrees {
+		if wt.RepositoryInfo == nil {
+			t.Errorf("Expected RepositoryInfo to be set for worktree %s", wt.Path)
+			continue
+		}
+		if wt.RepositoryInfo.Host != "github.com" {
+			t.Errorf("Expected Host 'github.com', got '%s'", wt.RepositoryInfo.Host)
+		}
+		if wt.RepositoryInfo.Owner != "testuser" {
+			t.Errorf("Expected Owner 'testuser', got '%s'", wt.RepositoryInfo.Owner)
+		}
+		if wt.RepositoryInfo.Repository != "testrepo" {
+			t.Errorf("Expected Repository 'testrepo', got '%s'", wt.RepositoryInfo.Repository)
+		}
+	}
+}
+
+func TestListWorktrees_RepositoryInfoWithoutRemote(t *testing.T) {
+	repo := NewTestRepository(t)
+	g := New(repo.Path)
+
+	// No remote added - RepositoryInfo should be nil
+	worktrees, err := g.ListWorktrees()
+	if err != nil {
+		t.Fatalf("ListWorktrees() error = %v", err)
+	}
+
+	if len(worktrees) == 0 {
+		t.Fatal("Expected at least one worktree")
+	}
+
+	for _, wt := range worktrees {
+		if wt.RepositoryInfo != nil {
+			t.Errorf("Expected RepositoryInfo to be nil when no remote, got %+v for %s", wt.RepositoryInfo, wt.Path)
+		}
+	}
+}
+
 // Helper function to compare worktrees with path resolution
 func containsWorktreeWithPath(worktrees []models.Worktree, path string) bool {
 	resolvedPath, _ := filepath.EvalSymlinks(path)

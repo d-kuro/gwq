@@ -252,7 +252,7 @@ func removeGlobalWorktree(ctx *CommandContext, args []string) error {
 				g = &git.Git{}
 			}
 
-			f := finder.NewWithUI(g, &ctx.Config.Finder, &ctx.Config.UI)
+			f := finder.NewWithUI(g, &ctx.Config.Finder, &ctx.Config.UI, &ctx.Config.Naming)
 			selected, err := f.SelectMultipleWorktrees(worktrees)
 			if err != nil {
 				return fmt.Errorf("worktree selection cancelled")

@@ -41,11 +41,20 @@ func TestRunSetupCommands(t *testing.T) {
 	ctx := context.Background()
 	cmds := []string{"echo foo", "failcmd bar"}
 
-	outputs, errs := RunSetupCommands(ctx, exec, dir, cmds)
-	if len(outputs) != 2 {
-		t.Errorf("expected 2 outputs, got %d", len(outputs))
+	results := RunSetupCommands(ctx, exec, dir, cmds)
+	if len(results) != 2 {
+		t.Errorf("expected 2 results, got %d", len(results))
 	}
-	if len(errs) != 1 {
-		t.Errorf("expected 1 error, got %d", len(errs))
+	if results[0].Output != "ok1" {
+		t.Errorf("expected first output 'ok1', got %q", results[0].Output)
+	}
+	if results[0].Err != nil {
+		t.Errorf("expected first command to succeed, got error: %v", results[0].Err)
+	}
+	if results[1].Output != "ok2" {
+		t.Errorf("expected second output 'ok2', got %q", results[1].Output)
+	}
+	if results[1].Err == nil {
+		t.Error("expected second command to fail, got nil error")
 	}
 }

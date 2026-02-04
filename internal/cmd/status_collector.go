@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -83,7 +84,10 @@ func (c *StatusCollector) CollectAll(ctx context.Context, worktrees []*models.Wo
 				return
 			}
 
-			if strings.HasPrefix(currentPath, worktree.Path) {
+			// Check if current working directory is within this worktree path.
+			// Using filepath.Rel avoids prefix collision (e.g., /repo vs /repo2).
+			relPath, relErr := filepath.Rel(worktree.Path, currentPath)
+			if relErr == nil && !strings.HasPrefix(relPath, "..") {
 				status.IsCurrent = true
 			}
 
@@ -178,7 +182,7 @@ func (c *StatusCollector) countFileStates(ctx context.Context, g *git.Git, statu
 		return err
 	}
 
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		if len(line) < 3 {
 			continue
 		}
@@ -290,42 +294,172 @@ func (c *StatusCollector) countRevList(ctx context.Context, g *git.Git, revRange
 		return 0
 	}
 
-	var count int
-	if _, err := fmt.Sscanf(strings.TrimSpace(output), "%d", &count); err != nil {
-		return 0
-	}
+	count, _ := strconv.Atoi(strings.TrimSpace(output))
 	return count
 }
 
 func (c *StatusCollector) determineWorktreeState(status *models.GitStatus) models.WorktreeState {
-	if status.Conflicts > 0 {
+	switch {
+	case status.Conflicts > 0:
 		return models.WorktreeStatusConflict
-	}
-	if status.Staged > 0 {
+	case status.Staged > 0:
 		return models.WorktreeStatusStaged
-	}
-	if status.Modified > 0 || status.Added > 0 || status.Deleted > 0 || status.Untracked > 0 {
+	case status.Modified > 0 || status.Added > 0 || status.Deleted > 0 || status.Untracked > 0:
 		return models.WorktreeStatusModified
+	default:
+		return models.WorktreeStatusClean
 	}
-	return models.WorktreeStatusClean
 }
 
 func (c *StatusCollector) getLastActivity(path string) (time.Time, error) {
-	// Use git ls-files to get tracked files efficiently
-	// This approach respects .gitignore patterns automatically and is much faster
-	// than walking the entire directory tree
 	g := git.New(path)
 
-	latestTime, err := c.getLastActivityFromTrackedFiles(g, path)
+	// Step 1: Check dirty files (staged + unstaged + untracked) via git status
+	// This is fast and reflects recent activity more accurately
+	latestTime, err := c.getLastActivityFromDirtyFiles(g, path)
+	if err == nil && !latestTime.IsZero() {
+		return latestTime, nil
+	}
+
+	// Step 2: If no dirty files, use last commit timestamp
+	commitTime, err := c.getLastCommitTime(g)
+	if err == nil && !commitTime.IsZero() {
+		return commitTime, nil
+	}
+
+	// Step 3: Fallback to sampling tracked files
+	return c.getLastActivityFromTrackedFilesSampled(g, path)
+}
+
+// getLastActivityFromDirtyFiles gets the latest modification time from dirty files.
+// This includes staged changes, unstaged changes, and untracked files.
+func (c *StatusCollector) getLastActivityFromDirtyFiles(g *git.Git, path string) (time.Time, error) {
+	// git status --porcelain -z returns all dirty files
+	// Note: We don't use -uall to avoid performance issues with large numbers of untracked files
+	output, err := g.Run("status", "--porcelain", "-z")
 	if err != nil {
-		// Fallback to directory walk if git command fails
+		return time.Time{}, err
+	}
+
+	if output == "" {
+		return time.Time{}, nil // No dirty files
+	}
+
+	var latestTime time.Time
+	files := parseGitStatusFiles(output)
+
+	for _, file := range files {
+		fullPath := filepath.Join(path, file)
+		info, err := os.Stat(fullPath)
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(latestTime) {
+			latestTime = info.ModTime()
+		}
+	}
+
+	return latestTime, nil
+}
+
+// parseGitStatusFiles parses git status --porcelain -z output and returns file paths.
+//
+// Format: "XY filename\x00" or "XY oldname\x00newname\x00" for renames/copies
+// - X: status in index
+// - Y: status in work tree
+// - Rename/Copy (R/C): has two NUL-separated names (old and new)
+//
+// Notes:
+// - Do not use TrimSpace (it would corrupt filenames with leading/trailing spaces)
+// - Skip first 3 characters (XY + space) to get filename
+func parseGitStatusFiles(output string) []string {
+	var files []string
+	parts := strings.Split(strings.TrimRight(output, "\x00"), "\x00")
+
+	i := 0
+	for i < len(parts) {
+		part := parts[i]
+		if len(part) < 3 {
+			i++
+			continue
+		}
+
+		statusCode := part[0:2]
+		// Skip first 3 characters (XY + space)
+		filename := part[3:]
+
+		// Check for Rename (R) or Copy (C) in either X or Y position
+		isRenameOrCopy := statusCode[0] == 'R' || statusCode[0] == 'C' ||
+			statusCode[1] == 'R' || statusCode[1] == 'C'
+		if isRenameOrCopy && i+1 < len(parts) {
+			// For rename/copy: oldname is part[3:], newname is next part
+			// Use newname (the current file)
+			i++
+			newname := parts[i]
+			if newname != "" {
+				files = append(files, newname)
+			}
+		} else {
+			if filename != "" {
+				files = append(files, filename)
+			}
+		}
+		i++
+	}
+	return files
+}
+
+// getLastCommitTime gets the timestamp of the last commit.
+func (c *StatusCollector) getLastCommitTime(g *git.Git) (time.Time, error) {
+	output, err := g.Run("log", "-1", "--format=%ct")
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return time.Time{}, fmt.Errorf("no commits found")
+	}
+
+	timestamp, err := strconv.ParseInt(output, 10, 64)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	return time.Unix(timestamp, 0), nil
+}
+
+// getLastActivityFromTrackedFilesSampled gets the latest modification time from tracked files
+// using sampling (first N files) for performance.
+func (c *StatusCollector) getLastActivityFromTrackedFilesSampled(g *git.Git, path string) (time.Time, error) {
+	const sampleSize = 100
+
+	output, err := g.Run("ls-files", "-z")
+	if err != nil {
+		// Fallback to directory walk
 		return c.getLastActivityFallback(path)
 	}
 
-	// Also check untracked files that are not ignored
-	untrackedTime := c.getLastActivityFromUntrackedFiles(g, path)
-	if untrackedTime.After(latestTime) {
-		latestTime = untrackedTime
+	files := strings.Split(strings.TrimRight(output, "\x00"), "\x00")
+	if len(files) > sampleSize {
+		files = files[:sampleSize]
+	}
+
+	var latestTime time.Time
+	for _, file := range files {
+		if file == "" {
+			continue
+		}
+
+		fullPath := filepath.Join(path, file)
+		info, err := os.Stat(fullPath)
+		if err != nil {
+			continue
+		}
+
+		if info.ModTime().After(latestTime) {
+			latestTime = info.ModTime()
+		}
 	}
 
 	if latestTime.IsZero() {
@@ -339,104 +473,39 @@ func (c *StatusCollector) getLastActivity(path string) (time.Time, error) {
 	return latestTime, nil
 }
 
-// getLastActivityFromTrackedFiles gets the latest modification time from tracked files
-func (c *StatusCollector) getLastActivityFromTrackedFiles(g *git.Git, path string) (time.Time, error) {
-	// Get list of tracked files
-	// Using -z for null-terminated output to handle filenames with spaces
-	output, err := g.Run("ls-files", "-z")
-	if err != nil {
-		return time.Time{}, err
-	}
-
-	var latestTime time.Time
-	files := strings.Split(strings.TrimRight(output, "\x00"), "\x00")
-
-	for _, file := range files {
-		if file == "" {
-			continue
-		}
-
-		fullPath := filepath.Join(path, file)
-		info, err := os.Stat(fullPath)
-		if err != nil {
-			continue // Skip files we can't stat
-		}
-
-		if info.ModTime().After(latestTime) {
-			latestTime = info.ModTime()
-		}
-	}
-
-	return latestTime, nil
-}
-
-// getLastActivityFromUntrackedFiles gets the latest modification time from untracked files
-func (c *StatusCollector) getLastActivityFromUntrackedFiles(g *git.Git, path string) time.Time {
-	var latestTime time.Time
-
-	untrackedOutput, err := g.Run("ls-files", "-z", "--others", "--exclude-standard")
-	if err != nil {
-		return latestTime
-	}
-
-	untrackedFiles := strings.Split(strings.TrimRight(untrackedOutput, "\x00"), "\x00")
-	for _, file := range untrackedFiles {
-		if file == "" {
-			continue
-		}
-
-		fullPath := filepath.Join(path, file)
-		info, err := os.Stat(fullPath)
-		if err != nil || info.IsDir() {
-			continue
-		}
-
-		if info.ModTime().After(latestTime) {
-			latestTime = info.ModTime()
-		}
-	}
-
-	return latestTime
+// Directories to skip during fallback file walking.
+var skipDirs = map[string]bool{
+	".git":          true,
+	"node_modules":  true,
+	"vendor":        true,
+	".next":         true,
+	"dist":          true,
+	"build":         true,
+	"target":        true,
+	".cache":        true,
+	"coverage":      true,
+	"__pycache__":   true,
+	".pytest_cache": true,
+	".venv":         true,
+	"venv":          true,
+	".idea":         true,
+	".vscode":       true,
 }
 
 // getLastActivityFallback is the fallback method when git commands fail
 func (c *StatusCollector) getLastActivityFallback(path string) (time.Time, error) {
 	var latestTime time.Time
 
-	// Common large directories to skip
-	skipDirs := map[string]bool{
-		".git":          true,
-		"node_modules":  true,
-		"vendor":        true,
-		".next":         true,
-		"dist":          true,
-		"build":         true,
-		"target":        true,
-		".cache":        true,
-		"coverage":      true,
-		"__pycache__":   true,
-		".pytest_cache": true,
-		".venv":         true,
-		"venv":          true,
-		".idea":         true,
-		".vscode":       true,
-	}
-
 	err := filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Continue even if we can't access a file
 		}
 
-		// Skip directories
 		if info.IsDir() {
-			dirName := filepath.Base(p)
-			if skipDirs[dirName] {
+			if shouldSkipDir(p, path) {
 				return filepath.SkipDir
 			}
-			// Also skip hidden directories (except the root)
-			if dirName != "." && strings.HasPrefix(dirName, ".") && p != path {
-				return filepath.SkipDir
-			}
+			return nil
 		}
 
 		if info.ModTime().After(latestTime) {
@@ -453,24 +522,44 @@ func (c *StatusCollector) getLastActivityFallback(path string) (time.Time, error
 	return latestTime, nil
 }
 
+// shouldSkipDir determines if a directory should be skipped during walking.
+func shouldSkipDir(dirPath, rootPath string) bool {
+	dirName := filepath.Base(dirPath)
+	if skipDirs[dirName] {
+		return true
+	}
+	// Skip hidden directories except the root
+	return dirName != "." && strings.HasPrefix(dirName, ".") && dirPath != rootPath
+}
+
 func (c *StatusCollector) extractRepository(path string) string {
+	cleanPath := filepath.Clean(path)
+
+	// Check for ghq-style .worktrees directory in path
+	// Example: /home/user/ghq/github.com/owner/repo/.worktrees/branch
+	worktreesPattern := string(filepath.Separator) + ".worktrees" + string(filepath.Separator)
+	if repoPath, _, found := strings.Cut(cleanPath, worktreesPattern); found {
+		return c.extractRepoNameFromPath(repoPath)
+	}
+
+	// Also handle main repository in ghq (no .worktrees)
+	// Check if path contains typical ghq structure (github.com/owner/repo)
+	if repoName := c.extractGhqStyleRepo(cleanPath); repoName != "" {
+		return repoName
+	}
+
 	// Return basename if basedir is not set
 	if c.basedir == "" {
 		return filepath.Base(path)
 	}
 
 	baseDir := filepath.Clean(c.basedir)
-	cleanPath := filepath.Clean(path)
 
-	// Check if the path is under the base directory
-	if !strings.HasPrefix(cleanPath, baseDir) {
-		// Path is not under base directory, return basename
-		return filepath.Base(path)
-	}
-
+	// Check if the path is under the base directory using filepath.Rel
+	// This avoids prefix collision (e.g., /base vs /base2)
 	rel, err := filepath.Rel(baseDir, cleanPath)
-	if err != nil {
-		// Failed to get relative path, fallback to basename
+	if err != nil || strings.HasPrefix(rel, "..") {
+		// Path is not under base directory, return basename
 		return filepath.Base(path)
 	}
 
@@ -491,16 +580,42 @@ func (c *StatusCollector) extractRepository(path string) string {
 	return filepath.Base(path)
 }
 
-func (c *StatusCollector) collectProcesses(ctx context.Context, worktreePath string) ([]models.ProcessInfo, error) {
+// extractRepoNameFromPath extracts the repository identifier from a path.
+// It looks for patterns like github.com/owner/repo.
+func (c *StatusCollector) extractRepoNameFromPath(path string) string {
+	parts := strings.Split(path, string(filepath.Separator))
+
+	// Find a part that looks like a host (contains a dot)
+	for i, part := range parts {
+		if strings.Contains(part, ".") && i+2 < len(parts) {
+			// Found host, try to construct owner/repo
+			return filepath.Join(part, parts[i+1], parts[i+2])
+		}
+	}
+
+	return filepath.Base(path)
+}
+
+// extractGhqStyleRepo extracts repository identifier from a ghq-style path.
+// Returns empty string if not a ghq-style path.
+func (c *StatusCollector) extractGhqStyleRepo(path string) string {
+	parts := strings.Split(path, string(filepath.Separator))
+
+	// Look for a pattern like host/owner/repo (e.g., github.com/user/project)
+	for i := 0; i < len(parts)-2; i++ {
+		if strings.Contains(parts[i], ".") {
+			// Found potential host (github.com, gitlab.com, etc.)
+			// Check if next two parts could be owner/repo
+			if parts[i+1] != "" && parts[i+2] != "" && parts[i+2] != ".worktrees" {
+				return filepath.Join(parts[i], parts[i+1], parts[i+2])
+			}
+		}
+	}
+
+	return ""
+}
+
+func (c *StatusCollector) collectProcesses(_ context.Context, _ string) ([]models.ProcessInfo, error) {
 	// TODO: Implement process detection for AI agents and other tools
-	// This would involve:
-	// 1. Scanning for processes with working directory in worktreePath
-	// 2. Identifying known AI agent processes (claude, copilot, cursor, etc.)
-	// 3. Detecting common development tools (npm, cargo, python, etc.)
-	// 4. Platform-specific process enumeration (ps on Unix, tasklist on Windows)
-	//
-	// For now, this is a stub that returns an empty slice.
-	// The actual implementation is deferred as it requires platform-specific code
-	// and careful consideration of performance implications.
-	return []models.ProcessInfo{}, nil
+	return nil, nil
 }

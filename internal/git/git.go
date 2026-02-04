@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/d-kuro/gwq/internal/url"
 	"github.com/d-kuro/gwq/pkg/models"
 )
 
@@ -93,6 +94,20 @@ func (g *Git) ListWorktrees() ([]models.Worktree, error) {
 					worktrees[i].IsMain = true
 					break
 				}
+			}
+		}
+	}
+
+	// Set RepositoryInfo from remote URL (best-effort)
+	if repoURL, err := g.GetRepositoryURL(); err == nil {
+		if repoInfo, err := url.ParseRepositoryURL(repoURL); err == nil {
+			modelInfo := &models.RepositoryInfo{
+				Host:       repoInfo.Host,
+				Owner:      repoInfo.Owner,
+				Repository: repoInfo.Repository,
+			}
+			for i := range worktrees {
+				worktrees[i].RepositoryInfo = modelInfo
 			}
 		}
 	}
@@ -313,6 +328,48 @@ func (g *Git) GetRepositoryURL() (string, error) {
 		return "", fmt.Errorf("failed to get repository URL: %w", err)
 	}
 	return strings.TrimSpace(output), nil
+}
+
+// GetMainWorktreeRoot returns the root directory of the main worktree.
+// This works correctly even when called from within a linked worktree.
+// It uses `git rev-parse --git-common-dir` to find the shared .git directory,
+// then derives the main worktree path from it.
+func (g *Git) GetMainWorktreeRoot() (string, error) {
+	// Get the common git directory (shared by all worktrees)
+	output, err := g.run("rev-parse", "--git-common-dir")
+	if err != nil {
+		return "", fmt.Errorf("failed to get git common dir: %w", err)
+	}
+	gitCommonDir := strings.TrimSpace(output)
+
+	// Make the path absolute if it's relative
+	if !filepath.IsAbs(gitCommonDir) {
+		absPath, err := filepath.Abs(filepath.Join(g.workDir, gitCommonDir))
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve absolute path: %w", err)
+		}
+		gitCommonDir = absPath
+	}
+
+	// Clean the path to handle any .. or . components
+	gitCommonDir = filepath.Clean(gitCommonDir)
+
+	// The main worktree root is the parent of the .git directory
+	// (e.g., /path/to/repo/.git -> /path/to/repo)
+	if filepath.Base(gitCommonDir) == ".git" {
+		return filepath.Dir(gitCommonDir), nil
+	}
+
+	// If gitCommonDir doesn't end with .git, it might be inside worktrees directory
+	// (e.g., /path/to/repo/.git/worktrees/branch-name)
+	// In this case, we need to go up to find the .git directory
+	for dir := gitCommonDir; dir != "/" && dir != "."; dir = filepath.Dir(dir) {
+		if filepath.Base(dir) == ".git" {
+			return filepath.Dir(dir), nil
+		}
+	}
+
+	return "", fmt.Errorf("could not determine main worktree root from: %s", gitCommonDir)
 }
 
 // RunCommand executes a git command with the provided arguments and returns the output.
