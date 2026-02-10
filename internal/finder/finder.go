@@ -27,8 +27,8 @@ type Finder struct {
 
 // Icons for worktree display (when ui.icons is enabled)
 const (
-	iconRepo     = "" // Repository icon (nerd font)
-	iconWorktree = "" // Branch icon (nerd font)
+	iconRepo     = "*" // Repository icon
+	iconWorktree = ">" // Branch icon
 )
 
 // New creates a new Finder instance.

@@ -194,13 +194,13 @@ func filterNonMainWorktrees(worktrees []models.Worktree) []models.Worktree {
 }
 
 func removeGlobalWorktree(ctx *CommandContext, args []string) error {
-	entries, err := discovery.DiscoverGlobalWorktrees(ctx.Config.Worktree.BaseDir)
+	entries, err := discoverGlobalEntries(ctx.Config)
 	if err != nil {
 		return fmt.Errorf("failed to discover worktrees: %w", err)
 	}
 
 	if len(entries) == 0 {
-		return fmt.Errorf("no worktrees found in %s", ctx.Config.Worktree.BaseDir)
+		return fmt.Errorf("no worktrees found")
 	}
 
 	// Filter out main worktrees

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -405,6 +406,74 @@ func TestParseGitStatusFiles(t *testing.T) {
 				if got != tt.expected[i] {
 					t.Errorf("parseGitStatusFiles()[%d] = %q, want %q", i, got, tt.expected[i])
 				}
+			}
+		})
+	}
+}
+
+func TestExtractRepoNameFromPath_SkipsDotPrefixedSegments(t *testing.T) {
+	collector := &StatusCollector{}
+	path := filepath.Join(string(filepath.Separator), "home", "user", ".ghq", "github.com", "owner", "repo")
+
+	got := collector.extractRepoNameFromPath(path)
+	want := filepath.Join("github.com", "owner", "repo")
+	if got != want {
+		t.Fatalf("extractRepoNameFromPath() = %q, want %q", got, want)
+	}
+}
+
+func TestExtractGhqStyleRepo_SkipsDotPrefixedSegments(t *testing.T) {
+	collector := &StatusCollector{}
+	path := filepath.Join(string(filepath.Separator), "home", "user", ".ghq", "github.com", "owner", "repo")
+
+	got := collector.extractGhqStyleRepo(path)
+	want := filepath.Join("github.com", "owner", "repo")
+	if got != want {
+		t.Fatalf("extractGhqStyleRepo() = %q, want %q", got, want)
+	}
+}
+
+func TestExtractRepoFromPathParts(t *testing.T) {
+	tests := []struct {
+		name     string
+		parts    []string
+		wantRepo string
+		wantOK   bool
+	}{
+		{
+			name:     "normal ghq path",
+			parts:    []string{"", "home", "user", "ghq", "github.com", "owner", "repo"},
+			wantRepo: filepath.Join("github.com", "owner", "repo"),
+			wantOK:   true,
+		},
+		{
+			name:     "skip dot-prefixed host-like segment",
+			parts:    []string{"", "home", "user", ".ghq", "github.com", "owner", "repo"},
+			wantRepo: filepath.Join("github.com", "owner", "repo"),
+			wantOK:   true,
+		},
+		{
+			name:     "reject .worktrees as repository segment",
+			parts:    []string{"", "home", "user", "github.com", "owner", ".worktrees"},
+			wantRepo: "",
+			wantOK:   false,
+		},
+		{
+			name:     "no host segment",
+			parts:    []string{"", "home", "user", "workspace", "owner", "repo"},
+			wantRepo: "",
+			wantOK:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotRepo, gotOK := extractRepoFromPathParts(tt.parts)
+			if gotOK != tt.wantOK {
+				t.Fatalf("extractRepoFromPathParts() ok = %v, want %v", gotOK, tt.wantOK)
+			}
+			if gotRepo != tt.wantRepo {
+				t.Fatalf("extractRepoFromPathParts() repo = %q, want %q", gotRepo, tt.wantRepo)
 			}
 		})
 	}

@@ -72,7 +72,7 @@ func discoverGhqWorktrees(worktreesDir string) ([]*GlobalWorktreeEntry, error) {
 		}
 		// Set DisplayPath for worktrees (main repo's DisplayPath + :dirname)
 		for _, wtEntry := range worktreeEntries {
-			wtEntry.DisplayPath = mainEntry.DisplayPath + ":" + filepath.Base(wtEntry.Path)
+			wtEntry.DisplayPath = buildWorktreeDisplayPath(mainEntry, wtEntry.Path)
 		}
 		entries = append(entries, worktreeEntries...)
 	}
@@ -277,11 +277,36 @@ func extractRepoAndWorktrees(repoPath, worktreesDir string, validWorktreesDir bo
 		} else {
 			// Set DisplayPath for worktrees (main repo's DisplayPath + :dirname)
 			for _, wtEntry := range wtEntries {
-				wtEntry.DisplayPath = mainEntry.DisplayPath + ":" + filepath.Base(wtEntry.Path)
+				wtEntry.DisplayPath = buildWorktreeDisplayPath(mainEntry, wtEntry.Path)
 			}
 			entries = append(entries, wtEntries...)
 		}
 	}
 
 	return entries
+}
+
+func buildWorktreeDisplayPath(mainEntry *GlobalWorktreeEntry, worktreePath string) string {
+	base := mainEntry.DisplayPath
+	if base == "" {
+		base = fallbackMainDisplayPath(mainEntry)
+	}
+	branchDir := filepath.Base(worktreePath)
+	if base == "" {
+		return branchDir
+	}
+	return base + ":" + branchDir
+}
+
+func fallbackMainDisplayPath(mainEntry *GlobalWorktreeEntry) string {
+	if mainEntry == nil {
+		return ""
+	}
+	if mainEntry.RepositoryInfo != nil && mainEntry.RepositoryInfo.FullPath != "" {
+		return filepath.ToSlash(mainEntry.RepositoryInfo.FullPath)
+	}
+	if mainEntry.Path == "" {
+		return ""
+	}
+	return filepath.Base(mainEntry.Path)
 }

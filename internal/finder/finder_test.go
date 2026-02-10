@@ -951,6 +951,23 @@ func TestSetShowPath(t *testing.T) {
 	}
 }
 
+func TestFormatWorktreeForDisplay_IconsEnabled_MainHasVisiblePrefix(t *testing.T) {
+	f := &Finder{
+		useIcons: true,
+		showPath: false,
+	}
+
+	wt := models.Worktree{
+		Branch: "github.com/user/myapp",
+		IsMain: true,
+	}
+
+	got := f.formatWorktreeForDisplay(wt)
+	if got == wt.Branch {
+		t.Fatalf("expected visible prefix for main worktree when icons are enabled, got %q", got)
+	}
+}
+
 // Benchmark tests
 func BenchmarkTruncateHash(b *testing.B) {
 	hash := "a1b2c3d4e5f6789012345678901234567890abcd"

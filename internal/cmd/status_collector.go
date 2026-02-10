@@ -585,12 +585,8 @@ func (c *StatusCollector) extractRepository(path string) string {
 func (c *StatusCollector) extractRepoNameFromPath(path string) string {
 	parts := strings.Split(path, string(filepath.Separator))
 
-	// Find a part that looks like a host (contains a dot)
-	for i, part := range parts {
-		if strings.Contains(part, ".") && i+2 < len(parts) {
-			// Found host, try to construct owner/repo
-			return filepath.Join(part, parts[i+1], parts[i+2])
-		}
+	if repo, ok := extractRepoFromPathParts(parts); ok {
+		return repo
 	}
 
 	return filepath.Base(path)
@@ -601,18 +597,38 @@ func (c *StatusCollector) extractRepoNameFromPath(path string) string {
 func (c *StatusCollector) extractGhqStyleRepo(path string) string {
 	parts := strings.Split(path, string(filepath.Separator))
 
-	// Look for a pattern like host/owner/repo (e.g., github.com/user/project)
-	for i := 0; i < len(parts)-2; i++ {
-		if strings.Contains(parts[i], ".") {
-			// Found potential host (github.com, gitlab.com, etc.)
-			// Check if next two parts could be owner/repo
-			if parts[i+1] != "" && parts[i+2] != "" && parts[i+2] != ".worktrees" {
-				return filepath.Join(parts[i], parts[i+1], parts[i+2])
-			}
-		}
+	if repo, ok := extractRepoFromPathParts(parts); ok {
+		return repo
 	}
 
 	return ""
+}
+
+func extractRepoFromPathParts(parts []string) (string, bool) {
+	for i := 0; i+2 < len(parts); i++ {
+		host := parts[i]
+		owner := parts[i+1]
+		repo := parts[i+2]
+		if !isLikelyHostSegment(host) {
+			continue
+		}
+		if owner == "" || repo == "" || repo == ".worktrees" {
+			continue
+		}
+		return filepath.Join(host, owner, repo), true
+	}
+	return "", false
+}
+
+func isLikelyHostSegment(part string) bool {
+	if part == "" {
+		return false
+	}
+	// Hidden directories like ".ghq" are not host segments.
+	if strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".") {
+		return false
+	}
+	return strings.Contains(part, ".")
 }
 
 func (c *StatusCollector) collectProcesses(_ context.Context, _ string) ([]models.ProcessInfo, error) {

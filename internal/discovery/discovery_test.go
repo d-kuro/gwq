@@ -319,6 +319,39 @@ func TestConvertToWorktreeModels_DisplayPathWithDirname(t *testing.T) {
 	}
 }
 
+func TestExtractRepoAndWorktrees_DisplayPathFallbackWhenGhqRootsUnavailable(t *testing.T) {
+	repo := NewTestRepository(t)
+	repo.AddRemote(t, "origin", "https://github.com/testuser/testrepo.git")
+	repo.CreateBranch(t, "feature-test")
+	repo.CreateWorktree(t, filepath.Join(repo.Path, ".worktrees", "feature-test"), "feature-test")
+
+	entries := extractRepoAndWorktrees(repo.Path, ".worktrees", true, nil)
+	if len(entries) < 2 {
+		t.Fatalf("expected at least main + one worktree entry, got %d", len(entries))
+	}
+
+	var worktreeEntry *GlobalWorktreeEntry
+	for _, entry := range entries {
+		if !entry.IsMain {
+			worktreeEntry = entry
+			break
+		}
+	}
+	if worktreeEntry == nil {
+		t.Fatal("expected a non-main worktree entry")
+	}
+
+	if worktreeEntry.DisplayPath == "" {
+		t.Fatal("expected non-empty DisplayPath fallback for worktree")
+	}
+	if strings.HasPrefix(worktreeEntry.DisplayPath, ":") {
+		t.Fatalf("worktree DisplayPath must not start with colon, got: %q", worktreeEntry.DisplayPath)
+	}
+	if !strings.Contains(worktreeEntry.DisplayPath, ":feature-test") {
+		t.Fatalf("worktree DisplayPath should include branch suffix, got: %q", worktreeEntry.DisplayPath)
+	}
+}
+
 func TestConvertToWorktreeModels_PreservesRepositoryInfo(t *testing.T) {
 	repoInfo, _ := url.ParseRepositoryURL("https://github.com/testuser/testrepo.git")
 	entries := []*GlobalWorktreeEntry{

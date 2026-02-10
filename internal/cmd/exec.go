@@ -244,14 +244,6 @@ func getGlobalWorktreePathForExec(cfg *models.Config, pattern string) (string, e
 	return selectGlobalWorktreeWithFinder(cfg, candidates)
 }
 
-// discoverGlobalEntries discovers global worktree entries based on config.
-func discoverGlobalEntries(cfg *models.Config) ([]*discovery.GlobalWorktreeEntry, error) {
-	if cfg.Ghq.Enabled {
-		return discovery.DiscoverAllWorktrees(cfg)
-	}
-	return discovery.DiscoverGlobalWorktrees(cfg.Worktree.BaseDir)
-}
-
 // selectGlobalWorktreeWithFinder shows a fuzzy finder to select from multiple worktrees.
 func selectGlobalWorktreeWithFinder(cfg *models.Config, entries []*discovery.GlobalWorktreeEntry) (string, error) {
 	worktrees := discovery.ConvertToWorktreeModels(entries, true)
