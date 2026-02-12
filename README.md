@@ -108,13 +108,14 @@ gwq add -s feature/new-ui
 
 **Flags**: `-b` (new branch), `-i` (interactive), `-s` (stay), `-f` (force)
 
-### `gwq list`
+### `gwq list` (alias: `ls`)
 
 Display all worktrees.
 
 ```bash
 # Simple list
 gwq list
+gwq ls
 
 # Detailed information
 gwq list -v
