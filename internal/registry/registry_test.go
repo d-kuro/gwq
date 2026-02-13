@@ -21,17 +21,17 @@ func TestWorktreeEntry_IsExpired(t *testing.T) {
 		},
 		{
 			name:      "expired",
-			expiresAt: timePtr(time.Now().Add(-time.Hour)),
+			expiresAt: new(time.Now().Add(-time.Hour)),
 			want:      true,
 		},
 		{
 			name:      "not expired",
-			expiresAt: timePtr(time.Now().Add(time.Hour)),
+			expiresAt: new(time.Now().Add(time.Hour)),
 			want:      false,
 		},
 		{
 			name:      "just expired",
-			expiresAt: timePtr(time.Now().Add(-time.Second)),
+			expiresAt: new(time.Now().Add(-time.Second)),
 			want:      true,
 		},
 	}
@@ -148,7 +148,7 @@ func TestWorktreeEntry_ExpiresAt_JSONMarshal(t *testing.T) {
 	}
 
 	// Check that expires_at is not present in JSON
-	var m map[string]interface{}
+	var m map[string]any
 	if err := json.Unmarshal(data, &m); err != nil {
 		t.Fatalf("Failed to unmarshal JSON: %v", err)
 	}
@@ -173,8 +173,4 @@ func TestWorktreeEntry_ExpiresAt_JSONMarshal(t *testing.T) {
 	if _, ok := m["expires_at"]; !ok {
 		t.Error("expires_at should be present when set")
 	}
-}
-
-func timePtr(t time.Time) *time.Time {
-	return &t
 }

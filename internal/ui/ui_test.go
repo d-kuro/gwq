@@ -267,12 +267,12 @@ func TestPrintConfig(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	settings := map[string]interface{}{
-		"worktree": map[string]interface{}{
+	settings := map[string]any{
+		"worktree": map[string]any{
 			"basedir":    "~/worktrees",
 			"auto_mkdir": true,
 		},
-		"ui": map[string]interface{}{
+		"ui": map[string]any{
 			"color": true,
 			"icons": false,
 		},
@@ -467,9 +467,9 @@ func TestPrintConfigRecursive(t *testing.T) {
 	p := &Printer{}
 
 	// Test nested configuration
-	data := map[string]interface{}{
-		"level1": map[string]interface{}{
-			"level2": map[string]interface{}{
+	data := map[string]any{
+		"level1": map[string]any{
+			"level2": map[string]any{
 				"level3": "deep value",
 			},
 			"simple": 42,
@@ -506,7 +506,7 @@ func TestPrintConfigRecursiveWithPrefix(t *testing.T) {
 	p := &Printer{}
 
 	// Test with initial prefix
-	data := map[string]interface{}{
+	data := map[string]any{
 		"key": "value",
 	}
 

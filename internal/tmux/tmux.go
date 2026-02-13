@@ -14,8 +14,8 @@ type TmuxInterface interface {
 	NewSession(name, workDir string) error
 	NewSessionContext(ctx context.Context, name, workDir string) error
 	NewSessionWithCommandContext(ctx context.Context, name, workDir, command string) error
-	SetOption(sessionName, option string, value interface{}) error
-	SetOptionContext(ctx context.Context, sessionName, option string, value interface{}) error
+	SetOption(sessionName, option string, value any) error
+	SetOptionContext(ctx context.Context, sessionName, option string, value any) error
 	ListSessions() ([]string, error)
 	ListSessionsDetailed() ([]*SessionInfo, error)
 	KillSession(sessionName string) error
@@ -73,12 +73,12 @@ func (t *TmuxCommand) NewSessionWithCommandContext(ctx context.Context, name, wo
 	return t.RunCommandContext(ctx, args...)
 }
 
-func (t *TmuxCommand) SetOption(sessionName, option string, value interface{}) error {
+func (t *TmuxCommand) SetOption(sessionName, option string, value any) error {
 	args := []string{"set-option", "-t", sessionName, option, fmt.Sprintf("%v", value)}
 	return t.runCommand(args...)
 }
 
-func (t *TmuxCommand) SetOptionContext(ctx context.Context, sessionName, option string, value interface{}) error {
+func (t *TmuxCommand) SetOptionContext(ctx context.Context, sessionName, option string, value any) error {
 	args := []string{"set-option", "-t", sessionName, option, fmt.Sprintf("%v", value)}
 	return t.RunCommandContext(ctx, args...)
 }
