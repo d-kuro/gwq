@@ -178,7 +178,7 @@ func (c *StatusCollector) countFileStates(ctx context.Context, g *git.Git, statu
 		return err
 	}
 
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		if len(line) < 3 {
 			continue
 		}
@@ -349,9 +349,9 @@ func (c *StatusCollector) getLastActivityFromTrackedFiles(g *git.Git, path strin
 	}
 
 	var latestTime time.Time
-	files := strings.Split(strings.TrimRight(output, "\x00"), "\x00")
+	files := strings.SplitSeq(strings.TrimRight(output, "\x00"), "\x00")
 
-	for _, file := range files {
+	for file := range files {
 		if file == "" {
 			continue
 		}
@@ -379,8 +379,8 @@ func (c *StatusCollector) getLastActivityFromUntrackedFiles(g *git.Git, path str
 		return latestTime
 	}
 
-	untrackedFiles := strings.Split(strings.TrimRight(untrackedOutput, "\x00"), "\x00")
-	for _, file := range untrackedFiles {
+	untrackedFiles := strings.SplitSeq(strings.TrimRight(untrackedOutput, "\x00"), "\x00")
+	for file := range untrackedFiles {
 		if file == "" {
 			continue
 		}

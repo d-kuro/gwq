@@ -46,19 +46,19 @@ func (g *Git) ListWorktrees() ([]models.Worktree, error) {
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 
 	for i := 0; i < len(lines); i++ {
-		if strings.HasPrefix(lines[i], "worktree ") {
-			path := strings.TrimPrefix(lines[i], "worktree ")
+		if after, ok := strings.CutPrefix(lines[i], "worktree "); ok {
+			path := after
 
 			var branch, commitHash string
 			isMain := false
 
 			for j := i + 1; j < len(lines) && !strings.HasPrefix(lines[j], "worktree "); j++ {
-				if strings.HasPrefix(lines[j], "branch ") {
-					branch = strings.TrimPrefix(lines[j], "branch ")
+				if after, ok := strings.CutPrefix(lines[j], "branch "); ok {
+					branch = after
 					// Remove refs/heads/ prefix if present
 					branch = strings.TrimPrefix(branch, "refs/heads/")
-				} else if strings.HasPrefix(lines[j], "HEAD ") {
-					commitHash = strings.TrimPrefix(lines[j], "HEAD ")
+				} else if after, ok := strings.CutPrefix(lines[j], "HEAD "); ok {
+					commitHash = after
 				} else if strings.HasPrefix(lines[j], "bare") {
 					continue
 				}
@@ -185,9 +185,9 @@ func (g *Git) ListBranches(includeRemote bool) ([]models.Branch, error) {
 	}
 
 	var branches []models.Branch
-	lines := strings.Split(strings.TrimSpace(output), "\n")
+	lines := strings.SplitSeq(strings.TrimSpace(output), "\n")
 
-	for _, line := range lines {
+	for line := range lines {
 		if line == "" {
 			continue
 		}
@@ -254,9 +254,9 @@ func (g *Git) GetRecentCommits(path string, limit int) ([]models.CommitInfo, err
 	}
 
 	var commits []models.CommitInfo
-	lines := strings.Split(strings.TrimSpace(output), "\n")
+	lines := strings.SplitSeq(strings.TrimSpace(output), "\n")
 
-	for _, line := range lines {
+	for line := range lines {
 		if line == "" {
 			continue
 		}

@@ -269,7 +269,7 @@ func TestAllSettings(t *testing.T) {
 	}
 
 	// Check if our test settings are included
-	if testSection, ok := settings["test"].(map[string]interface{}); ok {
+	if testSection, ok := settings["test"].(map[string]any); ok {
 		if testSection["key1"] != "value1" {
 			t.Errorf("AllSettings() missing or incorrect test.key1")
 		}
