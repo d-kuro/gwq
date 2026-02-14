@@ -189,16 +189,16 @@ func createContext(requiresGit bool) (*CommandContext, error) {
 // resolveGhqFlag checks if the --ghq flag was explicitly set and updates the config accordingly.
 // Priority: command line flag > environment variable > config file (viper handles env/config)
 func (ctx *CommandContext) resolveGhqFlag(cmd *cobra.Command) {
-	if cmd.Flags().Changed("ghq") {
-		if ghqVal, err := cmd.Flags().GetBool("ghq"); err == nil {
-			ctx.Config.Ghq.Enabled = ghqVal
-		}
-	}
+	resolveGhqFlagOnConfig(cmd, ctx.Config)
 }
 
-// IsGhqEnabled returns whether ghq integration mode is enabled.
-// This considers the priority: command line flag > environment variable > config file.
-// Call this method after resolveGhqFlag has been called (typically in ExecuteWithArgs).
-func (ctx *CommandContext) IsGhqEnabled() bool {
-	return ctx.Config.Ghq.Enabled
+// resolveGhqFlagOnConfig checks if the --ghq flag was explicitly set and updates the given config.
+// This is the shared implementation used by both CommandContext.resolveGhqFlag and commands
+// that load config without CommandContext (e.g., cd).
+func resolveGhqFlagOnConfig(cmd *cobra.Command, cfg *models.Config) {
+	if cmd.Flags().Changed("ghq") {
+		if ghqVal, err := cmd.Flags().GetBool("ghq"); err == nil {
+			cfg.Ghq.Enabled = ghqVal
+		}
+	}
 }

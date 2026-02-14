@@ -4,7 +4,6 @@ package ghq
 import (
 	"fmt"
 	"os/exec"
-	"path/filepath"
 	"strings"
 )
 
@@ -71,32 +70,6 @@ func (c *Client) ListRepositories() ([]string, error) {
 func (c *Client) IsInstalled() bool {
 	_, err := c.executor.Run("ghq", "root")
 	return err == nil
-}
-
-// IsGhqManaged checks if a repository path is under any of the ghq roots.
-// The path must be a subdirectory of a ghq root (not the root itself).
-func IsGhqManaged(repoPath string, ghqRoots []string) bool {
-	// Clean and normalize the path
-	repoPath = filepath.Clean(repoPath)
-
-	for _, root := range ghqRoots {
-		root = filepath.Clean(root)
-
-		// Check if repoPath is a subdirectory of root
-		// Use filepath.Rel to properly handle path comparisons
-		rel, err := filepath.Rel(root, repoPath)
-		if err != nil {
-			continue
-		}
-
-		// If rel doesn't start with "..", it's under the root
-		// Also ensure it's not the root itself (rel should not be ".")
-		if !strings.HasPrefix(rel, "..") && rel != "." {
-			return true
-		}
-	}
-
-	return false
 }
 
 // parseLines splits output into non-empty lines.

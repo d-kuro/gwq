@@ -98,10 +98,7 @@ func parseBranchOrCommitFromHead(content string) (branch, commit string, needsFa
 // isHexString checks if a string is a valid hexadecimal string.
 func isHexString(s string) bool {
 	for _, c := range s {
-		isDigit := c >= '0' && c <= '9'
-		isLowerHex := c >= 'a' && c <= 'f'
-		isUpperHex := c >= 'A' && c <= 'F'
-		if !isDigit && !isLowerHex && !isUpperHex {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
 			return false
 		}
 	}

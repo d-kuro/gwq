@@ -15,15 +15,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	execGlobal bool
-	execStay   bool
-)
-
 var execCmd = &cobra.Command{
-	Use:                "exec [pattern] -- command [args...]",
-	Short:              "Execute command in worktree directory",
-	DisableFlagParsing: true,
+	Use:   "exec [pattern] -- command [args...]",
+	Short: "Execute command in worktree directory",
 	Long: `Execute a command in a worktree directory without changing the current directory.
 
 The command runs in a subshell with the working directory set to the selected worktree.
@@ -67,85 +61,30 @@ If no pattern is provided, all worktrees will be shown in the fuzzy finder.`,
 func init() {
 	rootCmd.AddCommand(execCmd)
 
-	execCmd.Flags().BoolVarP(&execGlobal, "global", "g", false, "Execute in global worktree")
-	execCmd.Flags().BoolVarP(&execStay, "stay", "s", false, "Stay in worktree directory after command execution")
-}
-
-// execArgs holds parsed execution arguments
-type execArgs struct {
-	pattern     string
-	commandArgs []string
-	global      bool
-	stay        bool
-	ghq         *bool // nil = not specified, true/false = explicitly set
-}
-
-// ptrTo returns a pointer to the given value.
-func ptrTo[T any](v T) *T {
-	return &v
-}
-
-// parseExecArgs manually parses command arguments since DisableFlagParsing is true
-func parseExecArgs(cmd *cobra.Command, args []string) (*execArgs, error) {
-	result := &execArgs{}
-	separatorIndex := -1
-
-	// Parse flags manually until we hit the "--" separator
-	for i, arg := range args {
-		if arg == "--" {
-			separatorIndex = i
-			break
-		}
-
-		switch arg {
-		case "-g", "--global":
-			result.global = true
-		case "-s", "--stay":
-			result.stay = true
-		case "--ghq", "--ghq=true":
-			result.ghq = ptrTo(true)
-		case "--ghq=false":
-			result.ghq = ptrTo(false)
-		case "-h", "--help":
-			return nil, cmd.Help()
-		default:
-			if strings.HasPrefix(arg, "-") {
-				return nil, fmt.Errorf("unknown flag: %s", arg)
-			}
-			// First non-flag argument is the pattern
-			if result.pattern == "" {
-				result.pattern = arg
-			}
-		}
-	}
-
-	if separatorIndex == -1 {
-		return nil, fmt.Errorf("missing -- separator. Use: gwq exec [pattern] -- command [args...]")
-	}
-
-	// Extract command and its arguments after the separator
-	if separatorIndex+1 >= len(args) {
-		return nil, fmt.Errorf("no command specified after --")
-	}
-	result.commandArgs = args[separatorIndex+1:]
-
-	return result, nil
+	execCmd.Flags().BoolP("global", "g", false, "Execute in global worktree")
+	execCmd.Flags().BoolP("stay", "s", false, "Stay in worktree directory after command execution")
+	execCmd.Flags().Bool("ghq", false, "Enable ghq integration mode (--ghq or --ghq=false)")
 }
 
 func runExec(cmd *cobra.Command, args []string) error {
-	parsedArgs, err := parseExecArgs(cmd, args)
-	if err != nil {
-		return err
+	dashAt := cmd.ArgsLenAtDash()
+	if dashAt == -1 {
+		return fmt.Errorf("missing -- separator. Use: gwq exec [pattern] -- command [args...]")
 	}
 
-	// Check if parsedArgs is nil (e.g., when --help is used)
-	if parsedArgs == nil {
-		return nil
+	commandArgs := args[dashAt:]
+	if len(commandArgs) == 0 {
+		return fmt.Errorf("no command specified after --")
 	}
 
-	// Set global variables for backward compatibility
-	execGlobal = parsedArgs.global
-	execStay = parsedArgs.stay
+	// Extract pattern from positional args before --
+	var pattern string
+	if dashAt > 0 {
+		pattern = args[0]
+	}
+
+	global, _ := cmd.Flags().GetBool("global")
+	stay, _ := cmd.Flags().GetBool("stay")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -153,15 +92,16 @@ func runExec(cmd *cobra.Command, args []string) error {
 	}
 
 	// Override ghq.enabled if --ghq flag was explicitly set
-	if parsedArgs.ghq != nil {
-		cfg.Ghq.Enabled = *parsedArgs.ghq
+	if cmd.Flags().Changed("ghq") {
+		ghqVal, _ := cmd.Flags().GetBool("ghq")
+		cfg.Ghq.Enabled = ghqVal
 	}
 
 	var worktreePath string
-	if parsedArgs.global {
-		worktreePath, err = getGlobalWorktreePathForExec(cfg, parsedArgs.pattern)
+	if global {
+		worktreePath, err = getGlobalWorktreePathForExec(cfg, pattern)
 	} else {
-		worktreePath, err = getLocalWorktreePathForExec(cfg, parsedArgs.pattern)
+		worktreePath, err = getLocalWorktreePathForExec(cfg, pattern)
 	}
 
 	if err != nil {
@@ -169,7 +109,7 @@ func runExec(cmd *cobra.Command, args []string) error {
 	}
 
 	// Execute the command in the worktree directory
-	return executeInWorktree(worktreePath, parsedArgs.commandArgs, parsedArgs.stay)
+	return executeInWorktree(worktreePath, commandArgs, stay)
 }
 
 func getLocalWorktreePathForExec(cfg *models.Config, pattern string) (string, error) {

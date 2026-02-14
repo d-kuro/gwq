@@ -199,61 +199,6 @@ func TestIsInstalled(t *testing.T) {
 	}
 }
 
-func TestIsGhqManaged(t *testing.T) {
-	tests := []struct {
-		name     string
-		repoPath string
-		ghqRoots []string
-		want     bool
-	}{
-		{
-			name:     "path under ghq root",
-			repoPath: "/home/user/ghq/github.com/user/repo",
-			ghqRoots: []string{"/home/user/ghq"},
-			want:     true,
-		},
-		{
-			name:     "path under second ghq root",
-			repoPath: "/home/user/work/ghq/github.com/user/repo",
-			ghqRoots: []string{"/home/user/ghq", "/home/user/work/ghq"},
-			want:     true,
-		},
-		{
-			name:     "path not under any ghq root",
-			repoPath: "/home/user/projects/repo",
-			ghqRoots: []string{"/home/user/ghq"},
-			want:     false,
-		},
-		{
-			name:     "empty ghq roots",
-			repoPath: "/home/user/ghq/github.com/user/repo",
-			ghqRoots: []string{},
-			want:     false,
-		},
-		{
-			name:     "partial match should not work",
-			repoPath: "/home/user/ghq-backup/github.com/user/repo",
-			ghqRoots: []string{"/home/user/ghq"},
-			want:     false,
-		},
-		{
-			name:     "exact ghq root path",
-			repoPath: "/home/user/ghq",
-			ghqRoots: []string{"/home/user/ghq"},
-			want:     false, // ghq root itself is not a repository
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := IsGhqManaged(tt.repoPath, tt.ghqRoots)
-			if got != tt.want {
-				t.Errorf("IsGhqManaged(%q, %v) = %v, want %v", tt.repoPath, tt.ghqRoots, got, tt.want)
-			}
-		})
-	}
-}
-
 // Helper functions for tests
 
 func containsString(s, substr string) bool {

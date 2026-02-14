@@ -297,11 +297,7 @@ func removeGlobalWorktree(ctx *CommandContext, args []string) error {
 	if removeDryRun {
 		fmt.Println("Would remove the following worktrees:")
 		for _, entry := range toRemove {
-			repoName := "unknown"
-			if entry.RepositoryInfo != nil {
-				repoName = entry.RepositoryInfo.Repository
-			}
-			fmt.Printf("  %s:%s (%s)\n", repoName, entry.Branch, entry.Path)
+			fmt.Printf("  %s:%s (%s)\n", entryRepoName(entry), entry.Branch, entry.Path)
 			if deleteBranch {
 				fmt.Printf("    - Would delete branch: %s\n", entry.Branch)
 			}
@@ -311,70 +307,66 @@ func removeGlobalWorktree(ctx *CommandContext, args []string) error {
 
 	// Remove each worktree by changing to its repository directory
 	for _, entry := range toRemove {
-		// Change to the repository directory to run git commands
-		originalDir, err := os.Getwd()
-		if err != nil {
-			ctx.Printer.PrintError(fmt.Errorf("failed to get current directory: %v", err))
-			continue
+		if err := removeOneGlobalWorktree(ctx, entry); err != nil {
+			ctx.Printer.PrintError(err)
 		}
+	}
 
-		// Change to repository directory (need to find git repository root from URL)
-		repoPath := entry.RepositoryURL
-		if entry.RepositoryInfo != nil {
-			// Try to find repository in common locations
-			g := git.New(entry.Path)
-			if repoRootPath, err := g.GetRepositoryPath(); err == nil {
-				repoPath = repoRootPath
-			}
+	return nil
+}
+
+// entryRepoName returns the repository name from an entry, or "unknown" if unavailable.
+func entryRepoName(entry *discovery.GlobalWorktreeEntry) string {
+	if entry.RepositoryInfo != nil {
+		return entry.RepositoryInfo.Repository
+	}
+	return "unknown"
+}
+
+// removeOneGlobalWorktree removes a single global worktree entry.
+func removeOneGlobalWorktree(ctx *CommandContext, entry *discovery.GlobalWorktreeEntry) error {
+	originalDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %v", err)
+	}
+	defer func() { _ = os.Chdir(originalDir) }()
+
+	// Find the repository root directory
+	repoPath := entry.RepositoryURL
+	if entry.RepositoryInfo != nil {
+		g := git.New(entry.Path)
+		if repoRootPath, err := g.GetRepositoryPath(); err == nil {
+			repoPath = repoRootPath
 		}
+	}
 
-		if err := os.Chdir(repoPath); err != nil {
-			ctx.Printer.PrintError(fmt.Errorf("failed to change to repository %s: %v", repoPath, err))
-			continue
+	if err := os.Chdir(repoPath); err != nil {
+		return fmt.Errorf("failed to change to repository %s: %v", repoPath, err)
+	}
+
+	g := git.New(repoPath)
+	wm := worktree.New(g, ctx.Config)
+
+	displayName := entryRepoName(entry) + ":" + entry.Branch
+
+	if deleteBranch {
+		if err := wm.RemoveWithBranch(entry.Path, entry.Branch, removeForce, deleteBranch, forceDeleteBranch); err != nil {
+			return fmt.Errorf("failed to remove %s: %v", displayName, err)
 		}
-
-		// Create git instance for the repository
-		g := git.New(repoPath)
-		wm := worktree.New(g, ctx.Config)
-
-		if deleteBranch {
-			if err := wm.RemoveWithBranch(entry.Path, entry.Branch, removeForce, deleteBranch, forceDeleteBranch); err != nil {
-				repoName := "unknown"
-				if entry.RepositoryInfo != nil {
-					repoName = entry.RepositoryInfo.Repository
-				}
-				ctx.Printer.PrintError(fmt.Errorf("failed to remove %s:%s: %v", repoName, entry.Branch, err))
-				_ = os.Chdir(originalDir)
-				continue
-			}
-		} else {
-			if err := wm.Remove(entry.Path, removeForce); err != nil {
-				repoName := "unknown"
-				if entry.RepositoryInfo != nil {
-					repoName = entry.RepositoryInfo.Repository
-				}
-				ctx.Printer.PrintError(fmt.Errorf("failed to remove %s:%s: %v", repoName, entry.Branch, err))
-				_ = os.Chdir(originalDir)
-				continue
-			}
+	} else {
+		if err := wm.Remove(entry.Path, removeForce); err != nil {
+			return fmt.Errorf("failed to remove %s: %v", displayName, err)
 		}
+	}
 
-		repoName := "unknown"
-		if entry.RepositoryInfo != nil {
-			repoName = entry.RepositoryInfo.Repository
-		}
-		ctx.Printer.PrintSuccess(fmt.Sprintf("Removed worktree: %s:%s", repoName, entry.Branch))
-		if deleteBranch && entry.Branch != "" {
-			ctx.Printer.PrintSuccess(fmt.Sprintf("Deleted branch: %s", entry.Branch))
-		}
+	ctx.Printer.PrintSuccess(fmt.Sprintf("Removed worktree: %s", displayName))
+	if deleteBranch && entry.Branch != "" {
+		ctx.Printer.PrintSuccess(fmt.Sprintf("Deleted branch: %s", entry.Branch))
+	}
 
-		// Clean up registry entry after successful removal
-		if reg, err := registry.New(); err == nil {
-			_ = reg.Unregister(entry.Path)
-		}
-
-		// Change back to original directory
-		_ = os.Chdir(originalDir)
+	// Clean up registry entry after successful removal
+	if reg, err := registry.New(); err == nil {
+		_ = reg.Unregister(entry.Path)
 	}
 
 	return nil

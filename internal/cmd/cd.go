@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"github.com/d-kuro/gwq/internal/config"
-	"github.com/d-kuro/gwq/pkg/models"
 	"github.com/spf13/cobra"
 )
 
@@ -52,8 +51,7 @@ func runCd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Resolve --ghq flag and override config if explicitly set
-	// Uses root command's PersistentFlags
-	resolveGhqFlagForConfig(cmd, cfg)
+	resolveGhqFlagOnConfig(cmd, cfg)
 
 	var pattern string
 	if len(args) > 0 {
@@ -72,13 +70,4 @@ func runCd(cmd *cobra.Command, args []string) error {
 	}
 
 	return LaunchShell(worktreePath)
-}
-
-// resolveGhqFlagForConfig checks if the --ghq flag was explicitly set and updates the config.
-func resolveGhqFlagForConfig(cmd *cobra.Command, cfg *models.Config) {
-	if cmd.Flags().Changed("ghq") {
-		if ghqVal, err := cmd.Flags().GetBool("ghq"); err == nil {
-			cfg.Ghq.Enabled = ghqVal
-		}
-	}
 }

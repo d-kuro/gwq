@@ -112,19 +112,28 @@ func (c *StatusCollector) CollectAll(ctx context.Context, worktrees []*models.Wo
 }
 
 func (c *StatusCollector) collectOne(ctx context.Context, worktree *models.Worktree) (*models.WorktreeStatus, error) {
+	repo := c.extractRepository(worktree.Path)
+	if worktree.RepositoryInfo != nil {
+		repo = filepath.Join(
+			worktree.RepositoryInfo.Host,
+			worktree.RepositoryInfo.Owner,
+			worktree.RepositoryInfo.Repository,
+		)
+	}
+
 	status := &models.WorktreeStatus{
 		Path:       worktree.Path,
 		Branch:     worktree.Branch,
-		Repository: c.extractRepository(worktree.Path),
+		Repository: repo,
 		Status:     models.WorktreeStatusClean,
 	}
 
 	g := git.New(worktree.Path)
 
-	gitStatus, err := c.collectGitStatus(ctx, g)
+	// Run git status once and reuse parsed result for both file state counts
+	// and dirty file modification times (avoiding 3 separate git commands).
+	gitStatus, dirtyFiles, err := c.runAndParseGitStatus(ctx, g)
 	if err != nil {
-		// Log error but continue with minimal status
-		// fmt.Fprintf(os.Stderr, "Warning: Failed to collect git status for %s: %v\n", worktree.Path, err)
 		status.GitStatus = models.GitStatus{}
 		status.Status = models.WorktreeStatusUnknown
 	} else {
@@ -132,7 +141,7 @@ func (c *StatusCollector) collectOne(ctx context.Context, worktree *models.Workt
 		status.Status = c.determineWorktreeState(gitStatus)
 	}
 
-	lastActivity, err := c.getLastActivity(worktree.Path)
+	lastActivity, err := c.getLastActivity(worktree.Path, dirtyFiles)
 	if err == nil {
 		status.LastActivity = lastActivity
 		if time.Since(lastActivity) > c.staleThreshold {
@@ -150,87 +159,85 @@ func (c *StatusCollector) collectOne(ctx context.Context, worktree *models.Workt
 	return status, nil
 }
 
-func (c *StatusCollector) collectGitStatus(ctx context.Context, g *git.Git) (*models.GitStatus, error) {
-	status := &models.GitStatus{}
-
-	// Count modified, staged, and other file states
-	if err := c.countFileStates(ctx, g, status); err != nil {
-		return nil, err
-	}
-
-	// Count untracked files separately for more accurate count
-	if err := c.countUntrackedFiles(ctx, g, status); err != nil {
-		// Non-fatal: continue even if we can't count untracked files
-		status.Untracked = 0
-	}
-
-	if c.fetchRemote {
-		// Errors are ignored as remote might not be available
-		_ = c.fetchRemoteStatus(ctx, g, status)
-	}
-
-	return status, nil
-}
-
-// countFileStates counts modified, staged, added, deleted, and conflicted files
-func (c *StatusCollector) countFileStates(ctx context.Context, g *git.Git, status *models.GitStatus) error {
+// runAndParseGitStatus runs a single git status command and parses both file state counts
+// and dirty file paths. This replaces three separate commands (git status -uno, git ls-files,
+// and git status -z) with one unified call.
+func (c *StatusCollector) runAndParseGitStatus(ctx context.Context, g *git.Git) (*models.GitStatus, []string, error) {
 	gitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	output, err := g.RunWithContext(gitCtx, "status", "--porcelain=v1", "-uno")
+	output, err := g.RunWithContext(gitCtx, "status", "--porcelain=v1", "-z")
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	for line := range strings.SplitSeq(output, "\n") {
-		if len(line) < 3 {
+	status := &models.GitStatus{}
+	if output == "" {
+		if c.fetchRemote {
+			_ = c.fetchRemoteStatus(ctx, g, status)
+		}
+		return status, nil, nil
+	}
+
+	// Parse NUL-separated output for both file state counts and file paths.
+	// Format: "XY filename\x00" or "XY oldname\x00newname\x00" for renames/copies
+	var files []string
+	parts := strings.Split(strings.TrimRight(output, "\x00"), "\x00")
+
+	i := 0
+	for i < len(parts) {
+		entry := parts[i]
+		if len(entry) < 3 {
+			i++
 			continue
 		}
 
-		c.processStatusLine(line, status)
+		// Count file states from status codes
+		indexStatus := entry[0]
+		worktreeStatus := entry[1]
+
+		if indexStatus != ' ' && indexStatus != '?' {
+			status.Staged++
+		}
+
+		switch worktreeStatus {
+		case 'M':
+			status.Modified++
+		case 'A':
+			status.Added++
+		case 'D':
+			status.Deleted++
+		case '?':
+			status.Untracked++
+		case 'U':
+			status.Conflicts++
+		}
+
+		// Extract file path (skip "XY " prefix)
+		statusCode := entry[0:2]
+		filename := entry[3:]
+
+		isRenameOrCopy := statusCode[0] == 'R' || statusCode[0] == 'C' ||
+			statusCode[1] == 'R' || statusCode[1] == 'C'
+		if isRenameOrCopy && i+1 < len(parts) {
+			i++
+			newname := parts[i]
+			if newname != "" {
+				files = append(files, newname)
+			}
+		} else {
+			if filename != "" {
+				files = append(files, filename)
+			}
+		}
+		i++
 	}
 
-	return nil
-}
-
-// processStatusLine processes a single line from git status output
-func (c *StatusCollector) processStatusLine(line string, status *models.GitStatus) {
-	index := line[0]
-	worktree := line[1]
-
-	if index != ' ' && index != '?' {
-		status.Staged++
+	if c.fetchRemote {
+		_ = c.fetchRemoteStatus(ctx, g, status)
 	}
 
-	switch worktree {
-	case 'M':
-		status.Modified++
-	case 'A':
-		status.Added++
-	case 'D':
-		status.Deleted++
-	case '?':
-		status.Untracked++
-	case 'U':
-		status.Conflicts++
-	}
-}
-
-// countUntrackedFiles counts untracked files using ls-files
-func (c *StatusCollector) countUntrackedFiles(ctx context.Context, g *git.Git, status *models.GitStatus) error {
-	gitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	untrackedFiles, err := g.RunWithContext(gitCtx, "ls-files", "--others", "--exclude-standard")
-	if err != nil {
-		return err
-	}
-
-	if untrackedFiles != "" {
-		status.Untracked = len(strings.Split(strings.TrimSpace(untrackedFiles), "\n"))
-	}
-
-	return nil
+	return status, files, nil
 }
 
 func (c *StatusCollector) fetchRemoteStatus(ctx context.Context, g *git.Git, status *models.GitStatus) error {
@@ -311,15 +318,18 @@ func (c *StatusCollector) determineWorktreeState(status *models.GitStatus) model
 	}
 }
 
-func (c *StatusCollector) getLastActivity(path string) (time.Time, error) {
-	g := git.New(path)
-
-	// Step 1: Check dirty files (staged + unstaged + untracked) via git status
-	// This is fast and reflects recent activity more accurately
-	latestTime, err := c.getLastActivityFromDirtyFiles(g, path)
-	if err == nil && !latestTime.IsZero() {
-		return latestTime, nil
+// getLastActivity determines the last activity time for a worktree.
+// dirtyFiles are pre-parsed file paths from git status (may be nil if git status failed).
+func (c *StatusCollector) getLastActivity(path string, dirtyFiles []string) (time.Time, error) {
+	// Step 1: Check dirty files (pre-parsed from the unified git status call)
+	if len(dirtyFiles) > 0 {
+		latestTime := c.getLatestModTime(path, dirtyFiles)
+		if !latestTime.IsZero() {
+			return latestTime, nil
+		}
 	}
+
+	g := git.New(path)
 
 	// Step 2: If no dirty files, use last commit timestamp
 	commitTime, err := c.getLastCommitTime(g)
@@ -331,25 +341,11 @@ func (c *StatusCollector) getLastActivity(path string) (time.Time, error) {
 	return c.getLastActivityFromTrackedFilesSampled(g, path)
 }
 
-// getLastActivityFromDirtyFiles gets the latest modification time from dirty files.
-// This includes staged changes, unstaged changes, and untracked files.
-func (c *StatusCollector) getLastActivityFromDirtyFiles(g *git.Git, path string) (time.Time, error) {
-	// git status --porcelain -z returns all dirty files
-	// Note: We don't use -uall to avoid performance issues with large numbers of untracked files
-	output, err := g.Run("status", "--porcelain", "-z")
-	if err != nil {
-		return time.Time{}, err
-	}
-
-	if output == "" {
-		return time.Time{}, nil // No dirty files
-	}
-
+// getLatestModTime returns the latest modification time among the given files.
+func (c *StatusCollector) getLatestModTime(basePath string, files []string) time.Time {
 	var latestTime time.Time
-	files := parseGitStatusFiles(output)
-
 	for _, file := range files {
-		fullPath := filepath.Join(path, file)
+		fullPath := filepath.Join(basePath, file)
 		info, err := os.Stat(fullPath)
 		if err != nil {
 			continue
@@ -358,55 +354,7 @@ func (c *StatusCollector) getLastActivityFromDirtyFiles(g *git.Git, path string)
 			latestTime = info.ModTime()
 		}
 	}
-
-	return latestTime, nil
-}
-
-// parseGitStatusFiles parses git status --porcelain -z output and returns file paths.
-//
-// Format: "XY filename\x00" or "XY oldname\x00newname\x00" for renames/copies
-// - X: status in index
-// - Y: status in work tree
-// - Rename/Copy (R/C): has two NUL-separated names (old and new)
-//
-// Notes:
-// - Do not use TrimSpace (it would corrupt filenames with leading/trailing spaces)
-// - Skip first 3 characters (XY + space) to get filename
-func parseGitStatusFiles(output string) []string {
-	var files []string
-	parts := strings.Split(strings.TrimRight(output, "\x00"), "\x00")
-
-	i := 0
-	for i < len(parts) {
-		part := parts[i]
-		if len(part) < 3 {
-			i++
-			continue
-		}
-
-		statusCode := part[0:2]
-		// Skip first 3 characters (XY + space)
-		filename := part[3:]
-
-		// Check for Rename (R) or Copy (C) in either X or Y position
-		isRenameOrCopy := statusCode[0] == 'R' || statusCode[0] == 'C' ||
-			statusCode[1] == 'R' || statusCode[1] == 'C'
-		if isRenameOrCopy && i+1 < len(parts) {
-			// For rename/copy: oldname is part[3:], newname is next part
-			// Use newname (the current file)
-			i++
-			newname := parts[i]
-			if newname != "" {
-				files = append(files, newname)
-			}
-		} else {
-			if filename != "" {
-				files = append(files, filename)
-			}
-		}
-		i++
-	}
-	return files
+	return latestTime
 }
 
 // getLastCommitTime gets the timestamp of the last commit.
@@ -539,13 +487,18 @@ func (c *StatusCollector) extractRepository(path string) string {
 	// Example: /home/user/ghq/github.com/owner/repo/.worktrees/branch
 	worktreesPattern := string(filepath.Separator) + ".worktrees" + string(filepath.Separator)
 	if repoPath, _, found := strings.Cut(cleanPath, worktreesPattern); found {
-		return c.extractRepoNameFromPath(repoPath)
+		parts := strings.Split(repoPath, string(filepath.Separator))
+		if repo, ok := extractRepoFromPathParts(parts); ok {
+			return repo
+		}
+		return filepath.Base(repoPath)
 	}
 
 	// Also handle main repository in ghq (no .worktrees)
 	// Check if path contains typical ghq structure (github.com/owner/repo)
-	if repoName := c.extractGhqStyleRepo(cleanPath); repoName != "" {
-		return repoName
+	parts := strings.Split(cleanPath, string(filepath.Separator))
+	if repo, ok := extractRepoFromPathParts(parts); ok {
+		return repo
 	}
 
 	// Return basename if basedir is not set
@@ -564,7 +517,7 @@ func (c *StatusCollector) extractRepository(path string) string {
 	}
 
 	// Split the relative path into components
-	parts := strings.Split(rel, string(filepath.Separator))
+	parts = strings.Split(rel, string(filepath.Separator))
 
 	// Expected structure: host/owner/repository/branch
 	// Return the first 3 components if available
@@ -578,30 +531,6 @@ func (c *StatusCollector) extractRepository(path string) string {
 	}
 
 	return filepath.Base(path)
-}
-
-// extractRepoNameFromPath extracts the repository identifier from a path.
-// It looks for patterns like github.com/owner/repo.
-func (c *StatusCollector) extractRepoNameFromPath(path string) string {
-	parts := strings.Split(path, string(filepath.Separator))
-
-	if repo, ok := extractRepoFromPathParts(parts); ok {
-		return repo
-	}
-
-	return filepath.Base(path)
-}
-
-// extractGhqStyleRepo extracts repository identifier from a ghq-style path.
-// Returns empty string if not a ghq-style path.
-func (c *StatusCollector) extractGhqStyleRepo(path string) string {
-	parts := strings.Split(path, string(filepath.Separator))
-
-	if repo, ok := extractRepoFromPathParts(parts); ok {
-		return repo
-	}
-
-	return ""
 }
 
 func extractRepoFromPathParts(parts []string) (string, bool) {

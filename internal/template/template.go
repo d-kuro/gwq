@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/template"
 
@@ -73,9 +74,16 @@ func (p *Processor) GeneratePath(baseDir string, repoInfo *url.RepositoryInfo, b
 func (p *Processor) sanitizeBranch(branch string) string {
 	sanitized := branch
 
+	// Sort keys for deterministic replacement order
+	keys := make([]string, 0, len(p.sanitizeChars))
+	for k := range p.sanitizeChars {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
 	// Apply custom sanitize characters to branch name first
-	for old, new := range p.sanitizeChars {
-		sanitized = strings.ReplaceAll(sanitized, old, new)
+	for _, k := range keys {
+		sanitized = strings.ReplaceAll(sanitized, k, p.sanitizeChars[k])
 	}
 
 	// Then apply default filesystem sanitization to handle remaining problematic characters

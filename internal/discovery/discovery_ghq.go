@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
-	"sync"
 
 	"github.com/d-kuro/gwq/internal/ghq"
 	"github.com/d-kuro/gwq/internal/git"
@@ -184,106 +182,6 @@ func discoverWorktreesInDir(dir string) ([]*GlobalWorktreeEntry, error) {
 	}
 
 	return worktrees, nil
-}
-
-// discoverGhqWorktreesParallel discovers worktrees from ghq-managed repositories using parallel processing.
-func discoverGhqWorktreesParallel(worktreesDir string, maxWorkers int) ([]*GlobalWorktreeEntry, error) {
-	client := ghq.NewClient()
-
-	if !client.IsInstalled() {
-		return nil, fmt.Errorf("ghq is not installed")
-	}
-
-	repos, err := client.ListRepositories()
-	if err != nil {
-		return nil, err
-	}
-
-	if len(repos) == 0 {
-		return []*GlobalWorktreeEntry{}, nil
-	}
-
-	// Get ghq roots to calculate DisplayPath (relative path matching ghq list format)
-	ghqRoots, err := client.GetRoots()
-	if err != nil {
-		ghqRoots = nil // Continue without DisplayPath if roots unavailable
-	}
-
-	if maxWorkers <= 0 {
-		maxWorkers = min(runtime.NumCPU(), 4)
-	}
-
-	jobs := make(chan int, len(repos))
-	results := make([][]*GlobalWorktreeEntry, len(repos))
-	var wg sync.WaitGroup
-
-	// Validate worktreesDir once
-	if worktreesDir == "" {
-		worktreesDir = ".worktrees"
-	}
-	validWorktreesDir := worktree.ValidateWorktreesDir(worktreesDir) == nil
-
-	// Start fixed number of workers
-	for range maxWorkers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for idx := range jobs {
-				results[idx] = extractRepoAndWorktrees(repos[idx], worktreesDir, validWorktreesDir, ghqRoots)
-			}
-		}()
-	}
-
-	// Submit jobs
-	for i := range repos {
-		jobs <- i
-	}
-	close(jobs)
-
-	wg.Wait()
-
-	// Flatten results
-	var allEntries []*GlobalWorktreeEntry
-	for _, entries := range results {
-		allEntries = append(allEntries, entries...)
-	}
-	return allEntries, nil
-}
-
-// extractRepoAndWorktrees extracts entries for a main repo and its worktrees.
-func extractRepoAndWorktrees(repoPath, worktreesDir string, validWorktreesDir bool, ghqRoots []string) []*GlobalWorktreeEntry {
-	var entries []*GlobalWorktreeEntry
-
-	// Main repo
-	mainEntry, err := extractMainRepoInfo(repoPath)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "[gwq] warning: failed to extract main repo info from %s: %v\n", repoPath, err)
-		}
-	} else {
-		// Set DisplayPath for ghq list format compatibility
-		mainEntry.DisplayPath = calculateGhqDisplayPath(mainEntry.Path, ghqRoots)
-		entries = append(entries, mainEntry)
-	}
-
-	// Worktrees
-	if validWorktreesDir && mainEntry != nil {
-		wtDir := filepath.Join(repoPath, worktreesDir)
-		wtEntries, err := discoverWorktreesInDir(wtDir)
-		if err != nil {
-			if !os.IsNotExist(err) {
-				fmt.Fprintf(os.Stderr, "[gwq] warning: failed to discover worktrees in %s: %v\n", wtDir, err)
-			}
-		} else {
-			// Set DisplayPath for worktrees (main repo's DisplayPath + :dirname)
-			for _, wtEntry := range wtEntries {
-				wtEntry.DisplayPath = buildWorktreeDisplayPath(mainEntry, wtEntry.Path)
-			}
-			entries = append(entries, wtEntries...)
-		}
-	}
-
-	return entries
 }
 
 func buildWorktreeDisplayPath(mainEntry *GlobalWorktreeEntry, worktreePath string) string {
