@@ -409,7 +409,7 @@ func TestGetRecentCommits(t *testing.T) {
 
 	for i := len(expectedMessages) - 1; i >= 0; i-- {
 		testFile := filepath.Join(repo.Path, fmt.Sprintf("file%d.txt", i))
-		if err := os.WriteFile(testFile, []byte(fmt.Sprintf("Content %d", i)), 0644); err != nil {
+		if err := os.WriteFile(testFile, fmt.Appendf(nil, "Content %d", i), 0644); err != nil {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 		if err := repo.run("add", "."); err != nil {

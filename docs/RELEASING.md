@@ -62,7 +62,7 @@ gwq command example
 
 ## 👥 Contributors
 
-- @username (contribution type)
+- @username (#PR)
 
 ## 📦 Upgrade Instructions
 
@@ -72,6 +72,18 @@ go install github.com/d-kuro/gwq/cmd/gwq@v0.0.X
 
 **Full Changelog**: https://github.com/d-kuro/gwq/compare/v0.0.PREV...v0.0.X
 ```
+
+#### Contributors section
+
+List external contributors (non-maintainer) who authored PRs included in this release. Bot accounts (renovate, dependabot) should be excluded.
+
+To find contributors, check PR authors between the previous tag and the current release:
+
+```bash
+gh pr list --state merged --search "merged:>YYYY-MM-DD" --json number,title,author --jq '.[] | select(.author.login != "d-kuro" and (.author.login | test("\\[bot\\]$") | not)) | "- @\(.author.login) (#\(.number))"'
+```
+
+If there are no external contributors, omit the Contributors section entirely.
 
 ### 4. Commit and push
 

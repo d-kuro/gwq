@@ -15,8 +15,9 @@ var (
 
 // listCmd represents the list command.
 var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "Display worktree list",
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "Display worktree list",
 	Long: `Display a list of worktrees.
 
 When run inside a git repository, shows worktrees for the current repository.
@@ -26,6 +27,9 @@ Use -v flag for detailed information including commit hashes and creation times.
 Use --json flag to output in JSON format for scripting.`,
 	Example: `  # Simple list
   gwq list
+
+  # Using the ls alias
+  gwq ls
 
   # Detailed information
   gwq list -v

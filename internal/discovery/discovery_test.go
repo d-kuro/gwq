@@ -561,7 +561,7 @@ func BenchmarkDiscoverGlobalWorktrees(b *testing.B) {
 	baseDir := b.TempDir()
 
 	// Create multiple repositories and worktrees
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		repo := &TestRepository{Path: filepath.Join(baseDir, fmt.Sprintf("repo%d", i))}
 		if err := os.MkdirAll(repo.Path, 0755); err != nil {
 			b.Fatalf("Failed to create repo directory: %v", err)
@@ -586,7 +586,7 @@ func BenchmarkDiscoverGlobalWorktrees(b *testing.B) {
 func BenchmarkFilterGlobalWorktrees(b *testing.B) {
 	// Create a large slice of entries
 	entries := make([]*GlobalWorktreeEntry, 1000)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		entries[i] = &GlobalWorktreeEntry{
 			Branch: fmt.Sprintf("branch-%d", i),
 			Path:   fmt.Sprintf("/path/to/branch-%d", i),

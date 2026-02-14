@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 
 	"github.com/d-kuro/gwq/internal/config"
@@ -51,10 +52,8 @@ If no pattern is provided, all worktrees will be shown in the fuzzy finder.`,
 	RunE: runExec,
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		// Disable file completion after --
-		for _, arg := range args {
-			if arg == "--" {
-				return nil, cobra.ShellCompDirectiveNoFileComp
-			}
+		if slices.Contains(args, "--") {
+			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 
 		if len(args) == 0 || (len(args) == 1 && !strings.HasPrefix(args[0], "-")) {
