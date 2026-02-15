@@ -12,16 +12,17 @@ var cdGlobal bool
 
 var cdCmd = &cobra.Command{
 	Use:   "cd [pattern]",
-	Short: "Change to worktree directory in new shell",
+	Short: "Change to worktree directory",
 	Long: `Change to a worktree directory by launching a new shell.
 
 This command launches a new shell session in the selected worktree directory.
 Type 'exit' to return to the original directory.
 
-If multiple worktrees match the pattern, an interactive fuzzy finder will be shown.
-If no pattern is provided, all worktrees will be shown in the fuzzy finder.
+With shell integration (cd.launch_shell=false), this command changes the
+current shell's directory instead of launching a new shell.
 
-This is equivalent to: cd $(gwq get pattern)`,
+If multiple worktrees match the pattern, an interactive fuzzy finder will be shown.
+If no pattern is provided, all worktrees will be shown in the fuzzy finder.`,
 	Example: `  # Change to a worktree matching 'feature'
   gwq cd feature
 

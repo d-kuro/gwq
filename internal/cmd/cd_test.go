@@ -11,6 +11,10 @@ func TestCdCmd_Structure(t *testing.T) {
 		t.Errorf("cdCmd.Use = %q, want %q", cdCmd.Use, "cd [pattern]")
 	}
 
+	if cdCmd.Short != "Change to worktree directory" {
+		t.Errorf("cdCmd.Short = %q, want %q", cdCmd.Short, "Change to worktree directory")
+	}
+
 	if cdCmd.Short == "" {
 		t.Error("cdCmd.Short should not be empty")
 	}
