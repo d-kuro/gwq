@@ -119,6 +119,15 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 		target = "local (.gwq.toml)"
 	}
 	fmt.Printf("Set %s = %v (%s)\n", key, typedValue, target)
+
+	if key == "cd.launch_shell" {
+		fmt.Fprintln(cmd.ErrOrStderr(), "\nTo apply this change, reload your shell integration:")
+		fmt.Fprintln(cmd.ErrOrStderr(), "  source <(gwq completion bash)   # bash")
+		fmt.Fprintln(cmd.ErrOrStderr(), "  source <(gwq completion zsh)    # zsh")
+		fmt.Fprintln(cmd.ErrOrStderr(), "  gwq completion fish | source    # fish")
+		fmt.Fprintln(cmd.ErrOrStderr(), "Or: exec $SHELL")
+	}
+
 	return nil
 }
 
