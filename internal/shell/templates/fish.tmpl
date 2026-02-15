@@ -1,0 +1,23 @@
+
+# gwq shell integration
+# Enables 'gwq cd' to change the current shell's directory.
+function {{.CommandName}} --wraps={{.CommandName}}
+    if test (count $argv) -gt 0; and test "$argv[1]" = "cd"
+        # Pass through help flags directly to the binary
+        for __gwq_arg in $argv[2..-1]
+            if test "$__gwq_arg" = "--help"; or test "$__gwq_arg" = "-h"
+                command {{.CommandName}} cd $argv[2..-1]
+                return $status
+            end
+        end
+        set -l __gwq_result (env __GWQ_CD_SHIM=1 command {{.CommandName}} cd $argv[2..-1])
+        set -l __gwq_st $status
+        if test $__gwq_st -eq 0; and test -n "$__gwq_result"
+            builtin cd $__gwq_result
+        else
+            return $__gwq_st
+        end
+    else
+        command {{.CommandName}} $argv
+    end
+end

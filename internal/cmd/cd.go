@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/d-kuro/gwq/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -41,10 +44,34 @@ func init() {
 	cdCmd.Flags().BoolVarP(&cdGlobal, "global", "g", false, "Change to global worktree")
 }
 
+const envCdShim = "__GWQ_CD_SHIM"
+
 func runCd(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
+	}
+
+	// launch_shell=false without shell integration: show setup guidance
+	if !cfg.Cd.LaunchShell && os.Getenv(envCdShim) != "1" {
+		return fmt.Errorf(`'gwq cd' requires shell integration when cd.launch_shell is false.
+
+To enable shell integration, add this to your shell configuration:
+
+  # bash (~/.bashrc)
+  source <(gwq completion bash)
+
+  # zsh (~/.zshrc)
+  source <(gwq completion zsh)
+
+  # fish (~/.config/fish/config.fish)
+  gwq completion fish | source
+
+Then reload your shell:
+  exec $SHELL
+
+Or, to use the old behavior (launching a new shell), run:
+  gwq config set cd.launch_shell true`)
 	}
 
 	var pattern string
@@ -63,5 +90,12 @@ func runCd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Called from shell wrapper: print path to stdout
+	if !cfg.Cd.LaunchShell && os.Getenv(envCdShim) == "1" {
+		fmt.Println(worktreePath)
+		return nil
+	}
+
+	// Default behavior: launch a new shell
 	return LaunchShell(worktreePath)
 }

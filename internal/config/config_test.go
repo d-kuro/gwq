@@ -154,6 +154,9 @@ func TestInit(t *testing.T) {
 	if !viper.GetBool("ui.icons") {
 		t.Errorf("Default ui.icons should be true")
 	}
+	if !viper.GetBool("cd.launch_shell") {
+		t.Errorf("Default cd.launch_shell should be true")
+	}
 
 	// Cleanup viper for other tests
 	t.Cleanup(func() {
