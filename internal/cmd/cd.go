@@ -26,7 +26,10 @@ This is equivalent to: cd $(gwq get pattern)`,
   gwq cd
 
   # Change to global worktree
-  gwq cd -g project:feature`,
+  gwq cd -g project:feature
+
+  # Change to global worktree with ghq integration (includes main repos)
+  gwq cd -g --ghq`,
 	RunE: runCd,
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) > 0 {
@@ -46,6 +49,9 @@ func runCd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// Resolve --ghq flag and override config if explicitly set
+	resolveGhqFlagOnConfig(cmd, cfg)
 
 	var pattern string
 	if len(args) > 0 {

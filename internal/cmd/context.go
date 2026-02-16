@@ -68,73 +68,75 @@ func NewGitCommandContext() (*CommandContext, error) {
 // This provides lazy initialization to avoid creating finders for commands that don't need them.
 func (ctx *CommandContext) GetFinder() *finder.Finder {
 	if ctx.finder == nil && ctx.Git != nil {
-		ctx.finder = finder.NewWithUI(ctx.Git, &ctx.Config.Finder, &ctx.Config.UI)
+		ctx.finder = finder.NewWithUI(ctx.Git, &ctx.Config.Finder, &ctx.Config.UI, &ctx.Config.Naming)
 	}
 	return ctx.finder
 }
 
 // GetGlobalFinder returns a finder instance for global operations that don't require a git repository.
 // This creates a finder with an empty git instance, suitable for global worktree operations.
+// Path display is disabled because the Branch field already contains the display path.
 func (ctx *CommandContext) GetGlobalFinder() *finder.Finder {
 	// For global operations, we use an empty git instance
 	emptyGit := &git.Git{}
-	return finder.NewWithUI(emptyGit, &ctx.Config.Finder, &ctx.Config.UI)
+	f := finder.NewWithUI(emptyGit, &ctx.Config.Finder, &ctx.Config.UI, &ctx.Config.Naming)
+	f.SetShowPath(false)
+	return f
 }
 
 // Factory functions for commands that haven't been refactored to use CommandContext yet
 
 // CreateFinder creates a finder instance for local operations with the given git instance.
 func CreateFinder(g *git.Git, cfg *models.Config) *finder.Finder {
-	return finder.NewWithUI(g, &cfg.Finder, &cfg.UI)
+	return finder.NewWithUI(g, &cfg.Finder, &cfg.UI, &cfg.Naming)
 }
 
 // CreateGlobalFinder creates a finder instance for global operations.
+// Path display is disabled because the Branch field already contains the display path.
 func CreateGlobalFinder(cfg *models.Config) *finder.Finder {
 	emptyGit := &git.Git{}
-	return finder.NewWithUI(emptyGit, &cfg.Finder, &cfg.UI)
+	f := finder.NewWithUI(emptyGit, &cfg.Finder, &cfg.UI, &cfg.Naming)
+	f.SetShowPath(false)
+	return f
 }
 
 // DiscoverGlobalWorktrees discovers global worktrees when -g flag is used.
+// If ghq mode is enabled, it discovers worktrees from ghq repositories and their .worktrees directories.
+// It also discovers worktrees from the traditional basedir.
 func (ctx *CommandContext) DiscoverGlobalWorktrees() ([]*models.Worktree, error) {
-	entries, err := discovery.DiscoverGlobalWorktrees(ctx.Config.Worktree.BaseDir)
+	entries, err := discovery.DiscoverAllWorktrees(ctx.Config)
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert GlobalWorktreeEntry to models.Worktree
-	var worktrees []*models.Worktree
-	for _, entry := range entries {
-		worktrees = append(worktrees, &models.Worktree{
-			Path:       entry.Path,
-			Branch:     entry.Branch,
-			CommitHash: entry.CommitHash,
-			IsMain:     entry.IsMain,
-		})
-	}
+	// Convert GlobalWorktreeEntry to models.Worktree with proper display format
+	// showRepoName=true to display in ghq list format (host/owner/repo:branch)
+	worktreeSlice := discovery.ConvertToWorktreeModels(entries, true)
 
-	return worktrees, nil
+	return toWorktreePtrs(worktreeSlice), nil
 }
 
 // GetWorktrees returns worktrees with support for both global and local modes
 func (ctx *CommandContext) GetWorktrees(forceGlobal bool) ([]*models.Worktree, error) {
-	// Use global discovery if forced or not in a git repository
 	if forceGlobal || !ctx.IsGitRepo {
 		return ctx.DiscoverGlobalWorktrees()
 	}
 
-	// Use local worktree manager for repository-specific worktrees
 	localWorktrees, err := ctx.WorktreeManager.List()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list worktrees: %w", err)
 	}
 
-	// Convert []models.Worktree to []*models.Worktree
-	var worktrees []*models.Worktree
-	for i := range localWorktrees {
-		worktrees = append(worktrees, &localWorktrees[i])
-	}
+	return toWorktreePtrs(localWorktrees), nil
+}
 
-	return worktrees, nil
+// toWorktreePtrs converts a slice of worktrees to a slice of pointers.
+func toWorktreePtrs(worktrees []models.Worktree) []*models.Worktree {
+	result := make([]*models.Worktree, len(worktrees))
+	for i := range worktrees {
+		result[i] = &worktrees[i]
+	}
+	return result
 }
 
 // WithGlobalLocalSupport handles commands that support both global and local modes.
@@ -152,20 +154,11 @@ func (ctx *CommandContext) WithGlobalLocalSupport(
 // ExecuteWithContext creates a command context and executes the provided function.
 // This is the main wrapper function that eliminates boilerplate in command implementations.
 func ExecuteWithContext(requiresGit bool, fn func(*CommandContext) error) func(*cobra.Command, []string) error {
-	return func(cmd *cobra.Command, args []string) error {
-		var ctx *CommandContext
-		var err error
-
-		if requiresGit {
-			ctx, err = NewGitCommandContext()
-		} else {
-			ctx, err = NewCommandContext()
-		}
-
+	return func(_ *cobra.Command, _ []string) error {
+		ctx, err := createContext(requiresGit)
 		if err != nil {
 			return err
 		}
-
 		return fn(ctx)
 	}
 }
@@ -173,19 +166,39 @@ func ExecuteWithContext(requiresGit bool, fn func(*CommandContext) error) func(*
 // ExecuteWithArgs is a variant that passes command arguments to the function.
 func ExecuteWithArgs(requiresGit bool, fn func(*CommandContext, *cobra.Command, []string) error) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		var ctx *CommandContext
-		var err error
-
-		if requiresGit {
-			ctx, err = NewGitCommandContext()
-		} else {
-			ctx, err = NewCommandContext()
-		}
-
+		ctx, err := createContext(requiresGit)
 		if err != nil {
 			return err
 		}
 
+		// Resolve ghq flag and override config if explicitly set
+		ctx.resolveGhqFlag(cmd)
+
 		return fn(ctx, cmd, args)
+	}
+}
+
+// createContext creates a CommandContext based on whether git is required.
+func createContext(requiresGit bool) (*CommandContext, error) {
+	if requiresGit {
+		return NewGitCommandContext()
+	}
+	return NewCommandContext()
+}
+
+// resolveGhqFlag checks if the --ghq flag was explicitly set and updates the config accordingly.
+// Priority: command line flag > environment variable > config file (viper handles env/config)
+func (ctx *CommandContext) resolveGhqFlag(cmd *cobra.Command) {
+	resolveGhqFlagOnConfig(cmd, ctx.Config)
+}
+
+// resolveGhqFlagOnConfig checks if the --ghq flag was explicitly set and updates the given config.
+// This is the shared implementation used by both CommandContext.resolveGhqFlag and commands
+// that load config without CommandContext (e.g., cd).
+func resolveGhqFlagOnConfig(cmd *cobra.Command, cfg *models.Config) {
+	if cmd.Flags().Changed("ghq") {
+		if ghqVal, err := cmd.Flags().GetBool("ghq"); err == nil {
+			cfg.Ghq.Enabled = ghqVal
+		}
 	}
 }

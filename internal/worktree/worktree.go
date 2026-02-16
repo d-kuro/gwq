@@ -27,6 +27,7 @@ type GitInterface interface {
 	GetRepositoryName() (string, error)
 	GetRecentCommits(path string, limit int) ([]models.CommitInfo, error)
 	GetRepositoryURL() (string, error)
+	GetMainWorktreeRoot() (string, error)
 }
 
 // Manager handles worktree operations.
@@ -195,7 +196,13 @@ func (m *Manager) preparePath(customPath, branch string) (string, error) {
 
 // runPostWorktreeSetup runs file copy and setup commands for the new worktree.
 func (m *Manager) runPostWorktreeSetup(worktreePath string) {
-	repoRoot, _ := os.Getwd()
+	// Use main worktree root for consistent repository settings matching
+	// This works correctly even when executed from a subdirectory or linked worktree
+	repoRoot, err := m.git.GetMainWorktreeRoot()
+	if err != nil {
+		// Fallback to current working directory if we can't get the main worktree root
+		repoRoot, _ = os.Getwd()
+	}
 
 	var repoSetting *models.RepositorySetting
 	for i, s := range m.config.RepositorySettings {
@@ -215,56 +222,98 @@ func (m *Manager) runPostWorktreeSetup(worktreePath string) {
 	}
 
 	// Run setup commands
-	outputs, setupErrs := RunSetupCommands(
+	results := RunSetupCommands(
 		context.Background(),
 		command.NewStandardExecutor(),
 		worktreePath,
 		repoSetting.SetupCommands,
 	)
-	for i, out := range outputs {
-		if out != "" {
-			fmt.Fprintf(os.Stderr, "[gwq] setup command output: %s\n", out)
+	for _, result := range results {
+		if result.Output != "" {
+			fmt.Fprintf(os.Stderr, "[gwq] setup command output: %s\n", result.Output)
 		}
-		if i < len(setupErrs) && setupErrs[i] != nil {
-			fmt.Fprintf(os.Stderr, "[gwq] setup command error: %v\n", setupErrs[i])
+		if result.Err != nil {
+			fmt.Fprintf(os.Stderr, "[gwq] setup command error: %v\n", result.Err)
 		}
 	}
 }
 
 // generateWorktreePath generates a path for a new worktree using template configuration.
 func (m *Manager) generateWorktreePath(branch string) (string, error) {
-	// Get repository URL
+	// Check if ghq mode is enabled
+	if m.config.Ghq.Enabled {
+		return m.generateGhqModePath(branch)
+	}
+
+	return m.generateBasedirModePath(branch)
+}
+
+// generateGhqModePath generates a worktree path in ghq mode.
+// The path will be: {mainWorktreeRoot}/{worktreesDir}/{sanitized-branch}
+func (m *Manager) generateGhqModePath(branch string) (string, error) {
+	// Get the main worktree root (works even from within a linked worktree)
+	mainRoot, err := m.git.GetMainWorktreeRoot()
+	if err != nil {
+		return "", fmt.Errorf("failed to get main worktree root: %w", err)
+	}
+
+	// Generate the path under .worktrees
+	worktreesDir := m.config.Ghq.WorktreesDir
+	if worktreesDir == "" {
+		worktreesDir = ".worktrees"
+	}
+
+	// Validate that worktreesDir is a relative path and doesn't escape repository root
+	if err := ValidateWorktreesDir(worktreesDir); err != nil {
+		return "", fmt.Errorf("ghq.%w", err)
+	}
+
+	path := GenerateGhqWorktreePath(mainRoot, worktreesDir, branch, m.config.Naming.SanitizeChars)
+
+	// Initialize .worktrees directory if needed
+	worktreesDirPath := GetWorktreesDir(mainRoot, worktreesDir)
+	if err := InitWorktreesDir(worktreesDirPath, m.config.Ghq.AutoFiles); err != nil {
+		// Log warning but continue - the directory creation during worktree add may still work
+		fmt.Fprintf(os.Stderr, "[gwq] warning: failed to initialize %s: %v\n", worktreesDir, err)
+	}
+
+	return path, nil
+}
+
+// generateBasedirModePath generates a worktree path using the traditional basedir mode.
+func (m *Manager) generateBasedirModePath(branch string) (string, error) {
 	repoURL, err := m.git.GetRepositoryURL()
 	if err != nil {
 		return "", fmt.Errorf("failed to get repository URL: %w", err)
 	}
 
-	// Parse repository URL to extract hierarchy
 	repoInfo, err := url.ParseRepositoryURL(repoURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse repository URL: %w", err)
 	}
 
-	// Use template if configured, otherwise fall back to default URL hierarchy
+	// Use template if configured
 	if m.config.Naming.Template != "" {
-		// Create template processor
-		processor, err := template.New(m.config.Naming.Template, m.config.Naming.SanitizeChars)
-		if err != nil {
-			// Fall back to default hierarchy if template is invalid
-			return url.GenerateWorktreePath(m.config.Worktree.BaseDir, repoInfo, branch), nil
+		if path := m.tryGeneratePathFromTemplate(repoInfo, branch); path != "" {
+			return path, nil
 		}
-
-		// Generate path using template
-		path, err := processor.GeneratePath(m.config.Worktree.BaseDir, repoInfo, branch)
-		if err != nil {
-			// Fall back to default hierarchy if template execution fails
-			return url.GenerateWorktreePath(m.config.Worktree.BaseDir, repoInfo, branch), nil
-		}
-
-		return path, nil
 	}
 
-	// Fall back to default URL hierarchy
-	path := url.GenerateWorktreePath(m.config.Worktree.BaseDir, repoInfo, branch)
-	return path, nil
+	return url.GenerateWorktreePath(m.config.Worktree.BaseDir, repoInfo, branch), nil
+}
+
+// tryGeneratePathFromTemplate attempts to generate a path using the template.
+// Returns empty string if template processing fails.
+func (m *Manager) tryGeneratePathFromTemplate(repoInfo *url.RepositoryInfo, branch string) string {
+	processor, err := template.New(m.config.Naming.Template, m.config.Naming.SanitizeChars)
+	if err != nil {
+		return ""
+	}
+
+	path, err := processor.GeneratePath(m.config.Worktree.BaseDir, repoInfo, branch)
+	if err != nil {
+		return ""
+	}
+
+	return path
 }

@@ -39,8 +39,8 @@ func ParseRepositoryURL(repoURL string) (*RepositoryInfo, error) {
 		return nil, fmt.Errorf("invalid repository path: %s", parsedURL.Path)
 	}
 
-	owner := pathParts[0]
-	repository := pathParts[1]
+	owner := strings.Join(pathParts[:len(pathParts)-1], "/")
+	repository := pathParts[len(pathParts)-1]
 
 	// Remove .git suffix if present
 	repository = strings.TrimSuffix(repository, ".git")
@@ -64,20 +64,27 @@ func GenerateWorktreePath(baseDir string, repoInfo *RepositoryInfo, branch strin
 
 // normalizeURL converts various git URL formats to a standard HTTP(S) format for parsing.
 func normalizeURL(repoURL string) string {
-	// Convert SSH format to HTTPS format for easier parsing
-	if strings.HasPrefix(repoURL, "git@") {
+	// Convert SSH formats to HTTPS for easier parsing
+	switch {
+	case strings.HasPrefix(repoURL, "git@"):
 		// git@github.com:user/repo.git -> https://github.com/user/repo.git
 		if host, path, found := strings.Cut(repoURL, ":"); found {
 			host = strings.TrimPrefix(host, "git@")
 			repoURL = fmt.Sprintf("https://%s/%s", host, path)
 		}
-	} else if strings.HasPrefix(repoURL, "ssh://git@") {
+	case strings.HasPrefix(repoURL, "ssh://git@"):
+		// Handle both colon and slash formats:
 		// ssh://git@github.com:user/repo.git -> https://github.com/user/repo.git
-		repoURL = strings.TrimPrefix(repoURL, "ssh://")
-		if host, path, found := strings.Cut(repoURL, ":"); found {
-			host = strings.TrimPrefix(host, "git@")
+		// ssh://git@github.com/user/repo.git -> https://github.com/user/repo.git
+		rest := strings.TrimPrefix(repoURL, "ssh://git@")
+		if host, path, hasColon := strings.Cut(rest, ":"); hasColon {
 			repoURL = fmt.Sprintf("https://%s/%s", host, path)
+		} else {
+			repoURL = "https://" + rest
 		}
+	case strings.HasPrefix(repoURL, "ssh://"):
+		// ssh://github.com/user/repo.git -> https://github.com/user/repo.git
+		repoURL = "https://" + strings.TrimPrefix(repoURL, "ssh://")
 	}
 
 	// Ensure https:// prefix

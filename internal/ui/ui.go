@@ -52,13 +52,7 @@ func (p *Printer) PrintWorktrees(worktrees []models.Worktree, verbose bool) {
 				wtType = models.WorktreeTypeMain
 			}
 
-			// Apply marker with consistent spacing
-			var branchWithMarker string
-			if wt.IsMain && p.useIcons {
-				branchWithMarker = "● " + wt.Branch
-			} else {
-				branchWithMarker = "  " + wt.Branch // Two spaces to match "● " width
-			}
+			branchWithMarker := formatWorktreeLabel(wt.IsMain, wt.Branch)
 
 			path := wt.Path
 			if p.useTildeHome {
@@ -75,13 +69,7 @@ func (p *Printer) PrintWorktrees(worktrees []models.Worktree, verbose bool) {
 	} else {
 		t = table.New().Headers("BRANCH", "PATH")
 		for _, wt := range worktrees {
-			// Apply marker with consistent spacing
-			var branchWithMarker string
-			if wt.IsMain && p.useIcons {
-				branchWithMarker = "● " + wt.Branch
-			} else {
-				branchWithMarker = "  " + wt.Branch // Two spaces to match "● " width
-			}
+			branchWithMarker := formatWorktreeLabel(wt.IsMain, wt.Branch)
 
 			path := wt.Path
 			if p.useTildeHome {
@@ -94,6 +82,13 @@ func (p *Printer) PrintWorktrees(worktrees []models.Worktree, verbose bool) {
 	if err := t.Println(); err != nil {
 		fmt.Printf("Error printing table: %v\n", err)
 	}
+}
+
+func formatWorktreeLabel(isMain bool, branch string) string {
+	if isMain {
+		return "MAIN: " + branch
+	}
+	return "WT: " + branch
 }
 
 // PrintWorktreesJSON displays worktrees in JSON format.

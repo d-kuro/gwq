@@ -6,9 +6,15 @@ import (
 	"time"
 
 	"github.com/d-kuro/gwq/internal/git"
+	"github.com/d-kuro/gwq/internal/template"
 	"github.com/d-kuro/gwq/internal/tmux"
 	"github.com/d-kuro/gwq/pkg/models"
 )
+
+// newTestDisplayProcessor creates a DisplayProcessor for testing purposes.
+func newTestDisplayProcessor(templateStr string) (*template.DisplayProcessor, error) {
+	return template.NewDisplayProcessor(templateStr)
+}
 
 func TestNew(t *testing.T) {
 	g := &git.Git{}
@@ -35,7 +41,7 @@ func TestNewWithUI(t *testing.T) {
 	config := &models.FinderConfig{Preview: true}
 	uiConfig := &models.UIConfig{TildeHome: true}
 
-	finder := NewWithUI(g, config, uiConfig)
+	finder := NewWithUI(g, config, uiConfig, nil)
 
 	if finder == nil {
 		t.Fatal("NewWithUI() returned nil")
@@ -48,6 +54,42 @@ func TestNewWithUI(t *testing.T) {
 	}
 	if !finder.useTildeHome {
 		t.Error("useTildeHome should be true when set in UI config")
+	}
+}
+
+func TestNewWithUI_WithDisplayTemplate(t *testing.T) {
+	g := &git.Git{}
+	config := &models.FinderConfig{Preview: false}
+	uiConfig := &models.UIConfig{TildeHome: false}
+	namingConfig := &models.NamingConfig{
+		DisplayTemplate: "{{.Repository}}:{{.Branch}}",
+	}
+
+	finder := NewWithUI(g, config, uiConfig, namingConfig)
+
+	if finder == nil {
+		t.Fatal("NewWithUI() returned nil")
+	}
+	if finder.displayProcessor == nil {
+		t.Error("displayProcessor should be set when DisplayTemplate is configured")
+	}
+}
+
+func TestNewWithUI_InvalidDisplayTemplate(t *testing.T) {
+	g := &git.Git{}
+	config := &models.FinderConfig{Preview: false}
+	uiConfig := &models.UIConfig{TildeHome: false}
+	namingConfig := &models.NamingConfig{
+		DisplayTemplate: "{{.Invalid", // Invalid template syntax
+	}
+
+	finder := NewWithUI(g, config, uiConfig, namingConfig)
+
+	if finder == nil {
+		t.Fatal("NewWithUI() returned nil")
+	}
+	if finder.displayProcessor != nil {
+		t.Error("displayProcessor should be nil for invalid template")
 	}
 }
 
@@ -584,6 +626,380 @@ func TestFormatSessionForDisplay(t *testing.T) {
 	expected1 := "project2/session2 - make test"
 	if result1 != expected1 {
 		t.Errorf("formatSessionForDisplay(1) = %s, expected %s", result1, expected1)
+	}
+}
+
+func TestExtractBranchName(t *testing.T) {
+	tests := []struct {
+		name          string
+		displayBranch string
+		expected      string
+	}{
+		{
+			name:          "owner/repo:branch format",
+			displayBranch: "github.com/user/myapp:feature",
+			expected:      "feature",
+		},
+		{
+			name:          "simple branch name",
+			displayBranch: "feature",
+			expected:      "feature",
+		},
+		{
+			name:          "main repo without colon",
+			displayBranch: "github.com/user/myapp",
+			expected:      "github.com/user/myapp",
+		},
+		{
+			name:          "branch with slash",
+			displayBranch: "github.com/user/myapp:feature/new-ui",
+			expected:      "feature/new-ui",
+		},
+		{
+			name:          "empty string",
+			displayBranch: "",
+			expected:      "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractBranchName(tt.displayBranch)
+			if result != tt.expected {
+				t.Errorf("extractBranchName(%q) = %q, want %q", tt.displayBranch, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestFormatWorktreeForDisplay_WithTemplate(t *testing.T) {
+	finder := &Finder{
+		useTildeHome: false,
+		useIcons:     false,
+	}
+
+	// Set up display processor manually for testing
+	processor, err := newTestDisplayProcessor("{{.Owner}}/{{.Repository}}:{{.Branch}}")
+	if err != nil {
+		t.Fatalf("Failed to create processor: %v", err)
+	}
+	finder.displayProcessor = processor
+
+	wt := models.Worktree{
+		Branch: "github.com/user/myapp:feature",
+		Path:   "/path/to/worktree",
+		IsMain: false,
+		RepositoryInfo: &models.RepositoryInfo{
+			Host:       "github.com",
+			Owner:      "user",
+			Repository: "myapp",
+		},
+	}
+
+	result := finder.formatWorktreeForDisplay(wt)
+	expected := "user/myapp:feature"
+
+	if result != expected {
+		t.Errorf("formatWorktreeForDisplay() = %q, want %q", result, expected)
+	}
+}
+
+func TestFormatWorktreeForDisplay_FallbackWhenNoTemplate(t *testing.T) {
+	finder := &Finder{
+		useTildeHome:     false,
+		useIcons:         false,
+		showPath:         true,
+		displayProcessor: nil, // No template configured
+	}
+
+	wt := models.Worktree{
+		Branch: "github.com/user/myapp:feature",
+		Path:   "/path/to/worktree",
+		IsMain: false,
+		RepositoryInfo: &models.RepositoryInfo{
+			Host:       "github.com",
+			Owner:      "user",
+			Repository: "myapp",
+		},
+	}
+
+	result := finder.formatWorktreeForDisplay(wt)
+	expected := "WT: github.com/user/myapp:feature (/path/to/worktree)"
+
+	if result != expected {
+		t.Errorf("formatWorktreeForDisplay() = %q, want %q", result, expected)
+	}
+}
+
+func TestFormatWorktreeForDisplay_TemplateWithoutRepositoryInfo(t *testing.T) {
+	processor, err := newTestDisplayProcessor("{{if .IsMain}}[main] {{end}}{{.Branch}} ({{.Path}})")
+	if err != nil {
+		t.Fatalf("Failed to create processor: %v", err)
+	}
+
+	finder := &Finder{
+		useTildeHome:     false,
+		useIcons:         false,
+		showPath:         true,
+		displayProcessor: processor,
+	}
+
+	wt := models.Worktree{
+		Branch:         "feature",
+		Path:           "/path/to/worktree",
+		IsMain:         false,
+		RepositoryInfo: nil,
+	}
+
+	result := finder.formatWorktreeForDisplay(wt)
+	expected := "feature (/path/to/worktree)"
+
+	if result != expected {
+		t.Errorf("formatWorktreeForDisplay() = %q, want %q", result, expected)
+	}
+}
+
+func TestFormatWorktreeForDisplay_TemplateCanReproduceMainStyle(t *testing.T) {
+	processor, err := newTestDisplayProcessor("{{if .IsMain}}[main] {{end}}{{.Branch}} ({{.Path}})")
+	if err != nil {
+		t.Fatalf("Failed to create processor: %v", err)
+	}
+
+	f := &Finder{
+		useTildeHome:     false,
+		useIcons:         false,
+		showPath:         true,
+		displayProcessor: processor,
+	}
+
+	mainWT := models.Worktree{
+		Branch: "main",
+		Path:   "/path/to/main",
+		IsMain: true,
+	}
+	if got := f.formatWorktreeForDisplay(mainWT); got != "[main] main (/path/to/main)" {
+		t.Errorf("main style reproduction failed: got %q", got)
+	}
+
+	featureWT := models.Worktree{
+		Branch: "feature-x",
+		Path:   "/path/to/worktree/feature-x",
+		IsMain: false,
+	}
+	if got := f.formatWorktreeForDisplay(featureWT); got != "feature-x (/path/to/worktree/feature-x)" {
+		t.Errorf("feature style reproduction failed: got %q", got)
+	}
+}
+
+func TestFormatWorktreeForDisplay_TemplateWithPath(t *testing.T) {
+	finder := &Finder{
+		useTildeHome: false,
+		useIcons:     false,
+	}
+
+	processor, err := newTestDisplayProcessor("{{.Repository}}:{{.Branch}} ({{.Path}})")
+	if err != nil {
+		t.Fatalf("Failed to create processor: %v", err)
+	}
+	finder.displayProcessor = processor
+
+	wt := models.Worktree{
+		Branch: "github.com/user/myapp:feature",
+		Path:   "/path/to/worktree",
+		IsMain: false,
+		RepositoryInfo: &models.RepositoryInfo{
+			Host:       "github.com",
+			Owner:      "user",
+			Repository: "myapp",
+		},
+	}
+
+	result := finder.formatWorktreeForDisplay(wt)
+	expected := "myapp:feature (/path/to/worktree)"
+
+	if result != expected {
+		t.Errorf("formatWorktreeForDisplay() = %q, want %q", result, expected)
+	}
+}
+
+func TestFormatWorktreeForDisplay_MainWorktreeWithConditional(t *testing.T) {
+	finder := &Finder{
+		useTildeHome: false,
+		useIcons:     false,
+	}
+
+	processor, err := newTestDisplayProcessor("{{.Repository}}{{if not .IsMain}}:{{.Branch}}{{end}}")
+	if err != nil {
+		t.Fatalf("Failed to create processor: %v", err)
+	}
+	finder.displayProcessor = processor
+
+	// Main worktree
+	wtMain := models.Worktree{
+		Branch: "github.com/user/myapp",
+		Path:   "/path/to/main",
+		IsMain: true,
+		RepositoryInfo: &models.RepositoryInfo{
+			Host:       "github.com",
+			Owner:      "user",
+			Repository: "myapp",
+		},
+	}
+
+	resultMain := finder.formatWorktreeForDisplay(wtMain)
+	expectedMain := "myapp"
+	if resultMain != expectedMain {
+		t.Errorf("formatWorktreeForDisplay(main) = %q, want %q", resultMain, expectedMain)
+	}
+
+	// Non-main worktree
+	wtBranch := models.Worktree{
+		Branch: "github.com/user/myapp:feature",
+		Path:   "/path/to/feature",
+		IsMain: false,
+		RepositoryInfo: &models.RepositoryInfo{
+			Host:       "github.com",
+			Owner:      "user",
+			Repository: "myapp",
+		},
+	}
+
+	resultBranch := finder.formatWorktreeForDisplay(wtBranch)
+	expectedBranch := "myapp:feature"
+	if resultBranch != expectedBranch {
+		t.Errorf("formatWorktreeForDisplay(branch) = %q, want %q", resultBranch, expectedBranch)
+	}
+}
+
+func TestFormatWorktreeForDisplay_ShowPathFalse(t *testing.T) {
+	f := &Finder{
+		useTildeHome:     false,
+		useIcons:         false,
+		showPath:         false,
+		displayProcessor: nil,
+	}
+
+	wt := models.Worktree{
+		Branch: "github.com/user/myapp",
+		Path:   "/home/user/ghq/github.com/user/myapp",
+		IsMain: true,
+	}
+
+	result := f.formatWorktreeForDisplay(wt)
+	// showPath=false: path should not appear
+	if strings.Contains(result, "/home/user/ghq") {
+		t.Errorf("expected no path in display, got %q", result)
+	}
+	// Branch should still be shown
+	if !strings.Contains(result, "github.com/user/myapp") {
+		t.Errorf("expected branch in display, got %q", result)
+	}
+}
+
+func TestFormatWorktreeForDisplay_ShowPathFalse_NonMainWorktree(t *testing.T) {
+	f := &Finder{
+		useTildeHome:     false,
+		useIcons:         false,
+		showPath:         false,
+		displayProcessor: nil,
+	}
+
+	wt := models.Worktree{
+		Branch: "github.com/user/myapp:feature",
+		Path:   "/home/user/ghq/github.com/user/myapp/.worktrees/feature",
+		IsMain: false,
+	}
+
+	result := f.formatWorktreeForDisplay(wt)
+	expected := "WT: github.com/user/myapp:feature"
+	if result != expected {
+		t.Errorf("formatWorktreeForDisplay() = %q, want %q", result, expected)
+	}
+}
+
+func TestFormatWorktreeForDisplay_ShowPathFalse_WithTemplate(t *testing.T) {
+	processor, err := newTestDisplayProcessor("{{.Owner}}/{{.Repository}}:{{.Branch}}")
+	if err != nil {
+		t.Fatalf("Failed to create processor: %v", err)
+	}
+
+	f := &Finder{
+		useTildeHome:     false,
+		useIcons:         false,
+		showPath:         false,
+		displayProcessor: processor,
+	}
+
+	wt := models.Worktree{
+		Branch: "github.com/user/myapp:feature",
+		Path:   "/home/user/ghq/github.com/user/myapp/.worktrees/feature",
+		IsMain: false,
+		RepositoryInfo: &models.RepositoryInfo{
+			Host:       "github.com",
+			Owner:      "user",
+			Repository: "myapp",
+		},
+	}
+
+	result := f.formatWorktreeForDisplay(wt)
+	expected := "user/myapp:feature"
+	if result != expected {
+		t.Errorf("formatWorktreeForDisplay() = %q, want %q", result, expected)
+	}
+}
+
+func TestFormatWorktreeForDisplay_ShowPathTrue(t *testing.T) {
+	f := &Finder{
+		useTildeHome:     false,
+		useIcons:         false,
+		showPath:         true,
+		displayProcessor: nil,
+	}
+
+	wt := models.Worktree{
+		Branch: "main",
+		Path:   "/home/user/project",
+		IsMain: true,
+	}
+
+	result := f.formatWorktreeForDisplay(wt)
+	if !strings.HasPrefix(result, "MAIN: ") {
+		t.Errorf("expected MAIN label in display when showPath=true, got %q", result)
+	}
+	if !strings.Contains(result, "(/home/user/project)") {
+		t.Errorf("expected path in display when showPath=true, got %q", result)
+	}
+}
+
+func TestSetShowPath(t *testing.T) {
+	f := &Finder{showPath: true}
+	if !f.showPath {
+		t.Fatal("showPath should be true initially")
+	}
+	f.SetShowPath(false)
+	if f.showPath {
+		t.Fatal("showPath should be false after SetShowPath(false)")
+	}
+	f.SetShowPath(true)
+	if !f.showPath {
+		t.Fatal("showPath should be true after SetShowPath(true)")
+	}
+}
+
+func TestFormatWorktreeForDisplay_IconsEnabled_MainHasVisiblePrefix(t *testing.T) {
+	f := &Finder{
+		useIcons: true,
+		showPath: false,
+	}
+
+	wt := models.Worktree{
+		Branch: "github.com/user/myapp",
+		IsMain: true,
+	}
+
+	got := f.formatWorktreeForDisplay(wt)
+	if got != "MAIN: github.com/user/myapp" {
+		t.Fatalf("expected MAIN label regardless of icons setting, got %q", got)
 	}
 }
 

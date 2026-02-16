@@ -19,6 +19,7 @@ type mockGit struct {
 	pruneError        error
 	deleteBranchError error
 	recentCommits     []models.CommitInfo
+	mainWorktreeRoot  string
 }
 
 func (m *mockGit) ListWorktrees() ([]models.Worktree, error) {
@@ -88,6 +89,13 @@ func (m *mockGit) AddWorktreeFromBase(path, branch, baseBranch string) error {
 		Branch: branch,
 	})
 	return nil
+}
+
+func (m *mockGit) GetMainWorktreeRoot() (string, error) {
+	if m.mainWorktreeRoot != "" {
+		return m.mainWorktreeRoot, nil
+	}
+	return "/test/repo/root", nil
 }
 
 func TestManagerAdd(t *testing.T) {
@@ -501,7 +509,7 @@ func TestManagerAdd_ConfigurableSetupIntegration(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(oldwd) }()
 
-	mockG := &mockGit{}
+	mockG := &mockGit{mainWorktreeRoot: repoDir}
 	m := New(mockG, cfg)
 
 	_, err = m.Add("feature/test", filepath.Join(worktreeDir, "wt1"), false)

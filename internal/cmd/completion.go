@@ -107,6 +107,9 @@ func getConfigKeyCompletions(_ *cobra.Command, args []string, toComplete string)
 	}{
 		{"worktree.basedir", "Base directory for worktrees"},
 		{"worktree.auto_mkdir", "Automatically create directories"},
+		{"ghq.enabled", "Enable ghq integration mode"},
+		{"ghq.worktrees_dir", "Directory name for worktrees under ghq repos"},
+		{"ghq.auto_files", "Auto-generate .gitignore and README.md"},
 		{"finder.preview", "Enable preview window"},
 		{"finder.preview_size", "Preview window size"},
 		{"finder.keybind_select", "Key binding for selection"},

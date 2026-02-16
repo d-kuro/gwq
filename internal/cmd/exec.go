@@ -15,15 +15,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	execGlobal bool
-	execStay   bool
-)
-
 var execCmd = &cobra.Command{
-	Use:                "exec [pattern] -- command [args...]",
-	Short:              "Execute command in worktree directory",
-	DisableFlagParsing: true,
+	Use:   "exec [pattern] -- command [args...]",
+	Short: "Execute command in worktree directory",
 	Long: `Execute a command in a worktree directory without changing the current directory.
 
 The command runs in a subshell with the working directory set to the selected worktree.
@@ -33,18 +27,21 @@ If multiple worktrees match the pattern, an interactive fuzzy finder will be sho
 If no pattern is provided, all worktrees will be shown in the fuzzy finder.`,
 	Example: `  # Run tests in a feature branch
   gwq exec feature -- npm test
-  
+
   # Pull latest changes in main branch
   gwq exec main -- git pull
-  
+
   # Run multiple commands
   gwq exec feature -- sh -c "git pull && npm install && npm test"
-  
+
   # Stay in the worktree directory after command execution
   gwq exec --stay feature -- npm install
-  
+
   # Execute in global worktree
-  gwq exec -g project:feature -- make build`,
+  gwq exec -g project:feature -- make build
+
+  # Execute in global worktree with ghq integration (includes main repos)
+  gwq exec -g --ghq project:main -- git status`,
 	Args: cobra.ArbitraryArgs,
 	RunE: runExec,
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -64,91 +61,47 @@ If no pattern is provided, all worktrees will be shown in the fuzzy finder.`,
 func init() {
 	rootCmd.AddCommand(execCmd)
 
-	execCmd.Flags().BoolVarP(&execGlobal, "global", "g", false, "Execute in global worktree")
-	execCmd.Flags().BoolVarP(&execStay, "stay", "s", false, "Stay in worktree directory after command execution")
-}
-
-// execArgs holds parsed execution arguments
-type execArgs struct {
-	pattern     string
-	commandArgs []string
-	global      bool
-	stay        bool
-}
-
-// parseExecArgs manually parses command arguments since DisableFlagParsing is true
-func parseExecArgs(cmd *cobra.Command, args []string) (*execArgs, error) {
-	result := &execArgs{}
-	dashDashIndex := -1
-
-	// Parse flags manually
-	i := 0
-	for i < len(args) {
-		arg := args[i]
-		if arg == "--" {
-			dashDashIndex = i
-			break
-		}
-
-		switch arg {
-		case "-g", "--global":
-			result.global = true
-			i++
-		case "-s", "--stay":
-			result.stay = true
-			i++
-		case "-h", "--help":
-			return nil, cmd.Help()
-		default:
-			if strings.HasPrefix(arg, "-") {
-				return nil, fmt.Errorf("unknown flag: %s", arg)
-			}
-			// This is the pattern
-			if result.pattern == "" {
-				result.pattern = arg
-			}
-			i++
-		}
-	}
-
-	if dashDashIndex == -1 {
-		return nil, fmt.Errorf("missing -- separator. Use: gwq exec [pattern] -- command [args...]")
-	}
-
-	// Extract command and its arguments
-	if dashDashIndex+1 >= len(args) {
-		return nil, fmt.Errorf("no command specified after --")
-	}
-	result.commandArgs = args[dashDashIndex+1:]
-
-	return result, nil
+	execCmd.Flags().BoolP("global", "g", false, "Execute in global worktree")
+	execCmd.Flags().BoolP("stay", "s", false, "Stay in worktree directory after command execution")
+	execCmd.Flags().Bool("ghq", false, "Enable ghq integration mode (--ghq or --ghq=false)")
 }
 
 func runExec(cmd *cobra.Command, args []string) error {
-	parsedArgs, err := parseExecArgs(cmd, args)
-	if err != nil {
-		return err
+	dashAt := cmd.ArgsLenAtDash()
+	if dashAt == -1 {
+		return fmt.Errorf("missing -- separator. Use: gwq exec [pattern] -- command [args...]")
 	}
 
-	// Check if parsedArgs is nil (e.g., when --help is used)
-	if parsedArgs == nil {
-		return nil
+	commandArgs := args[dashAt:]
+	if len(commandArgs) == 0 {
+		return fmt.Errorf("no command specified after --")
 	}
 
-	// Set global variables for backward compatibility
-	execGlobal = parsedArgs.global
-	execStay = parsedArgs.stay
+	// Extract pattern from positional args before --
+	var pattern string
+	if dashAt > 0 {
+		pattern = args[0]
+	}
+
+	global, _ := cmd.Flags().GetBool("global")
+	stay, _ := cmd.Flags().GetBool("stay")
 
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
 
+	// Override ghq.enabled if --ghq flag was explicitly set
+	if cmd.Flags().Changed("ghq") {
+		ghqVal, _ := cmd.Flags().GetBool("ghq")
+		cfg.Ghq.Enabled = ghqVal
+	}
+
 	var worktreePath string
-	if parsedArgs.global {
-		worktreePath, err = getGlobalWorktreePathForExec(cfg, parsedArgs.pattern)
+	if global {
+		worktreePath, err = getGlobalWorktreePathForExec(cfg, pattern)
 	} else {
-		worktreePath, err = getLocalWorktreePathForExec(cfg, parsedArgs.pattern)
+		worktreePath, err = getLocalWorktreePathForExec(cfg, pattern)
 	}
 
 	if err != nil {
@@ -156,7 +109,7 @@ func runExec(cmd *cobra.Command, args []string) error {
 	}
 
 	// Execute the command in the worktree directory
-	return executeInWorktree(worktreePath, parsedArgs.commandArgs, parsedArgs.stay)
+	return executeInWorktree(worktreePath, commandArgs, stay)
 }
 
 func getLocalWorktreePathForExec(cfg *models.Config, pattern string) (string, error) {
@@ -168,52 +121,42 @@ func getLocalWorktreePathForExec(cfg *models.Config, pattern string) (string, er
 
 	wm := worktree.New(g, cfg)
 
+	// Get worktrees based on pattern
+	var worktrees []models.Worktree
 	if pattern != "" {
-		// Get all matching worktrees
-		matches, err := wm.GetMatchingWorktrees(pattern)
+		worktrees, err = wm.GetMatchingWorktrees(pattern)
 		if err != nil {
 			return "", err
 		}
-
-		if len(matches) == 0 {
+		if len(worktrees) == 0 {
 			return "", fmt.Errorf("no worktree found matching pattern: %s", pattern)
-		} else if len(matches) == 1 {
-			return matches[0].Path, nil
-		} else {
-			// Multiple matches - use fuzzy finder
-			f := CreateFinder(g, cfg)
-			selected, err := f.SelectWorktree(matches)
-			if err != nil {
-				return "", fmt.Errorf("worktree selection cancelled")
-			}
-			return selected.Path, nil
 		}
 	} else {
-		// No pattern - show all worktrees
-		worktrees, err := wm.List()
+		worktrees, err = wm.List()
 		if err != nil {
 			return "", err
 		}
-
 		if len(worktrees) == 0 {
 			return "", fmt.Errorf("no worktrees found")
 		}
-
-		if len(worktrees) == 1 {
-			return worktrees[0].Path, nil
-		}
-
-		f := CreateFinder(g, cfg)
-		selected, err := f.SelectWorktree(worktrees)
-		if err != nil {
-			return "", fmt.Errorf("worktree selection cancelled")
-		}
-		return selected.Path, nil
 	}
+
+	// Single match - return directly
+	if len(worktrees) == 1 {
+		return worktrees[0].Path, nil
+	}
+
+	// Multiple matches - use fuzzy finder
+	f := CreateFinder(g, cfg)
+	selected, err := f.SelectWorktree(worktrees)
+	if err != nil {
+		return "", fmt.Errorf("worktree selection cancelled")
+	}
+	return selected.Path, nil
 }
 
 func getGlobalWorktreePathForExec(cfg *models.Config, pattern string) (string, error) {
-	entries, err := discovery.DiscoverGlobalWorktrees(cfg.Worktree.BaseDir)
+	entries, err := discoverGlobalEntries(cfg)
 	if err != nil {
 		return "", err
 	}
@@ -222,55 +165,32 @@ func getGlobalWorktreePathForExec(cfg *models.Config, pattern string) (string, e
 		return "", fmt.Errorf("no worktrees found across all repositories")
 	}
 
-	var selected *discovery.GlobalWorktreeEntry
-
+	// Filter by pattern if provided
+	candidates := entries
 	if pattern != "" {
-		// Pattern matching
-		matches := discovery.FilterGlobalWorktrees(entries, pattern)
-
-		if len(matches) == 0 {
+		candidates = discovery.FilterGlobalWorktrees(entries, pattern)
+		if len(candidates) == 0 {
 			return "", fmt.Errorf("no worktree matches pattern: %s", pattern)
-		} else if len(matches) == 1 {
-			selected = matches[0]
-		} else {
-			// Multiple matches - use fuzzy finder
-			worktrees := discovery.ConvertToWorktreeModels(matches, true)
-
-			f := CreateGlobalFinder(cfg)
-			selectedWT, err := f.SelectWorktree(worktrees)
-			if err != nil {
-				return "", fmt.Errorf("worktree selection cancelled")
-			}
-
-			// Find the corresponding entry
-			for _, entry := range matches {
-				if entry.Path == selectedWT.Path {
-					selected = entry
-					break
-				}
-			}
-		}
-	} else {
-		// No pattern - show all in fuzzy finder
-		worktrees := discovery.ConvertToWorktreeModels(entries, true)
-
-		f := CreateGlobalFinder(cfg)
-		selectedWT, err := f.SelectWorktree(worktrees)
-		if err != nil {
-			return "", fmt.Errorf("worktree selection cancelled")
-		}
-
-		// Find the corresponding entry
-		for _, entry := range entries {
-			if entry.Path == selectedWT.Path {
-				selected = entry
-				break
-			}
 		}
 	}
 
-	if selected == nil {
-		return "", fmt.Errorf("no worktree selected")
+	// Single match - return directly
+	if len(candidates) == 1 {
+		return candidates[0].Path, nil
+	}
+
+	// Multiple matches - use fuzzy finder
+	return selectGlobalWorktreeWithFinder(cfg, candidates)
+}
+
+// selectGlobalWorktreeWithFinder shows a fuzzy finder to select from multiple worktrees.
+func selectGlobalWorktreeWithFinder(cfg *models.Config, entries []*discovery.GlobalWorktreeEntry) (string, error) {
+	worktrees := discovery.ConvertToWorktreeModels(entries, true)
+
+	f := CreateGlobalFinder(cfg)
+	selected, err := f.SelectWorktree(worktrees)
+	if err != nil {
+		return "", fmt.Errorf("worktree selection cancelled")
 	}
 
 	return selected.Path, nil

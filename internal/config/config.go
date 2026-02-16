@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/d-kuro/gwq/internal/utils"
 	"github.com/d-kuro/gwq/pkg/models"
@@ -138,6 +139,16 @@ func Init() error {
 		"/": "-",
 		":": "-",
 	})
+
+	// ghq integration defaults
+	viper.SetDefault("ghq.enabled", false)
+	viper.SetDefault("ghq.worktrees_dir", ".worktrees")
+	viper.SetDefault("ghq.auto_files", true)
+
+	// Environment variable binding
+	viper.SetEnvPrefix("GWQ")
+	viper.AutomaticEnv()
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
