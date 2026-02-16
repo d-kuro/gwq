@@ -724,15 +724,15 @@ func TestFormatWorktreeForDisplay_FallbackWhenNoTemplate(t *testing.T) {
 	}
 
 	result := finder.formatWorktreeForDisplay(wt)
-	expected := "github.com/user/myapp:feature (/path/to/worktree)"
+	expected := "WT: github.com/user/myapp:feature (/path/to/worktree)"
 
 	if result != expected {
 		t.Errorf("formatWorktreeForDisplay() = %q, want %q", result, expected)
 	}
 }
 
-func TestFormatWorktreeForDisplay_FallbackWhenNoRepositoryInfo(t *testing.T) {
-	processor, err := newTestDisplayProcessor("{{.Owner}}/{{.Repository}}:{{.Branch}}")
+func TestFormatWorktreeForDisplay_TemplateWithoutRepositoryInfo(t *testing.T) {
+	processor, err := newTestDisplayProcessor("{{if .IsMain}}[main] {{end}}{{.Branch}} ({{.Path}})")
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -748,7 +748,7 @@ func TestFormatWorktreeForDisplay_FallbackWhenNoRepositoryInfo(t *testing.T) {
 		Branch:         "feature",
 		Path:           "/path/to/worktree",
 		IsMain:         false,
-		RepositoryInfo: nil, // No repo info
+		RepositoryInfo: nil,
 	}
 
 	result := finder.formatWorktreeForDisplay(wt)
@@ -756,6 +756,38 @@ func TestFormatWorktreeForDisplay_FallbackWhenNoRepositoryInfo(t *testing.T) {
 
 	if result != expected {
 		t.Errorf("formatWorktreeForDisplay() = %q, want %q", result, expected)
+	}
+}
+
+func TestFormatWorktreeForDisplay_TemplateCanReproduceMainStyle(t *testing.T) {
+	processor, err := newTestDisplayProcessor("{{if .IsMain}}[main] {{end}}{{.Branch}} ({{.Path}})")
+	if err != nil {
+		t.Fatalf("Failed to create processor: %v", err)
+	}
+
+	f := &Finder{
+		useTildeHome:     false,
+		useIcons:         false,
+		showPath:         true,
+		displayProcessor: processor,
+	}
+
+	mainWT := models.Worktree{
+		Branch: "main",
+		Path:   "/path/to/main",
+		IsMain: true,
+	}
+	if got := f.formatWorktreeForDisplay(mainWT); got != "[main] main (/path/to/main)" {
+		t.Errorf("main style reproduction failed: got %q", got)
+	}
+
+	featureWT := models.Worktree{
+		Branch: "feature-x",
+		Path:   "/path/to/worktree/feature-x",
+		IsMain: false,
+	}
+	if got := f.formatWorktreeForDisplay(featureWT); got != "feature-x (/path/to/worktree/feature-x)" {
+		t.Errorf("feature style reproduction failed: got %q", got)
 	}
 }
 
@@ -879,7 +911,7 @@ func TestFormatWorktreeForDisplay_ShowPathFalse_NonMainWorktree(t *testing.T) {
 	}
 
 	result := f.formatWorktreeForDisplay(wt)
-	expected := "github.com/user/myapp:feature"
+	expected := "WT: github.com/user/myapp:feature"
 	if result != expected {
 		t.Errorf("formatWorktreeForDisplay() = %q, want %q", result, expected)
 	}
@@ -931,6 +963,9 @@ func TestFormatWorktreeForDisplay_ShowPathTrue(t *testing.T) {
 	}
 
 	result := f.formatWorktreeForDisplay(wt)
+	if !strings.HasPrefix(result, "MAIN: ") {
+		t.Errorf("expected MAIN label in display when showPath=true, got %q", result)
+	}
 	if !strings.Contains(result, "(/home/user/project)") {
 		t.Errorf("expected path in display when showPath=true, got %q", result)
 	}
@@ -963,8 +998,8 @@ func TestFormatWorktreeForDisplay_IconsEnabled_MainHasVisiblePrefix(t *testing.T
 	}
 
 	got := f.formatWorktreeForDisplay(wt)
-	if got == wt.Branch {
-		t.Fatalf("expected visible prefix for main worktree when icons are enabled, got %q", got)
+	if got != "MAIN: github.com/user/myapp" {
+		t.Fatalf("expected MAIN label regardless of icons setting, got %q", got)
 	}
 }
 

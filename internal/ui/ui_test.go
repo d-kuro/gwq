@@ -93,8 +93,11 @@ func TestPrintWorktrees(t *testing.T) {
 	if !strings.Contains(output, "feature/test") {
 		t.Error("Output should contain feature/test branch")
 	}
-	if !strings.Contains(output, "●") {
-		t.Error("Output should contain main worktree marker when icons enabled")
+	if !strings.Contains(output, "MAIN: main") {
+		t.Error("Output should contain MAIN label for main worktree")
+	}
+	if !strings.Contains(output, "WT: feature/test") {
+		t.Error("Output should contain WT label for non-main worktree")
 	}
 }
 

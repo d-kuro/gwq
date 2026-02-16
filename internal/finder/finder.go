@@ -25,12 +25,6 @@ type Finder struct {
 	displayProcessor *template.DisplayProcessor
 }
 
-// Icons for worktree display (when ui.icons is enabled)
-const (
-	iconRepo     = "*" // Repository icon
-	iconWorktree = ">" // Branch icon
-)
-
 // New creates a new Finder instance.
 func New(g *git.Git, config *models.FinderConfig) *Finder {
 	return &Finder{
@@ -273,28 +267,27 @@ func formatUnit(value int, unit string) string {
 
 // formatWorktreeForDisplay formats a worktree entry for display in the fuzzy finder.
 // For global mode with showRepoName=true, branch field contains owner/repo or owner/repo:branch.
-// When icons are enabled, it uses nerd font icons:
-// - Main repository:  owner/repo (path)
-// - Worktree:  owner/repo:branch (path)
-// When icons are disabled, it uses text prefixes:
-// - Main repository: [main] owner/repo (path)
-// - Worktree: owner/repo:branch (path)
-// If display_template is configured and RepositoryInfo is available, uses the custom template.
+// Default format uses explicit type labels:
+// - Main repository: MAIN: owner/repo (path)
+// - Worktree: WT: owner/repo:branch (path)
+// If display_template is configured, the template output is used.
 func (f *Finder) formatWorktreeForDisplay(wt models.Worktree) string {
 	path := wt.Path
 	if f.useTildeHome {
 		path = utils.TildePath(path)
 	}
 
-	// Use custom template if configured and RepositoryInfo is available
-	if f.displayProcessor != nil && wt.RepositoryInfo != nil {
+	// Use custom template if configured.
+	if f.displayProcessor != nil {
 		data := &template.DisplayTemplateData{
-			Host:       wt.RepositoryInfo.Host,
-			Owner:      wt.RepositoryInfo.Owner,
-			Repository: wt.RepositoryInfo.Repository,
 			Branch:     extractBranchName(wt.Branch),
 			Path:       path,
 			IsMain:     wt.IsMain,
+		}
+		if wt.RepositoryInfo != nil {
+			data.Host = wt.RepositoryInfo.Host
+			data.Owner = wt.RepositoryInfo.Owner
+			data.Repository = wt.RepositoryInfo.Repository
 		}
 
 		if formatted, err := f.displayProcessor.Format(data); err == nil {
@@ -304,17 +297,11 @@ func (f *Finder) formatWorktreeForDisplay(wt models.Worktree) string {
 	}
 
 	// Fallback: default display format
-	prefix := f.getWorktreePrefix(wt.IsMain)
+	label := getWorktreeLabel(wt.IsMain)
 	if f.showPath {
-		if prefix == "" {
-			return fmt.Sprintf("%s (%s)", wt.Branch, path)
-		}
-		return fmt.Sprintf("%s %s (%s)", prefix, wt.Branch, path)
+		return fmt.Sprintf("%s %s (%s)", label, wt.Branch, path)
 	}
-	if prefix == "" {
-		return wt.Branch
-	}
-	return fmt.Sprintf("%s %s", prefix, wt.Branch)
+	return fmt.Sprintf("%s %s", label, wt.Branch)
 }
 
 // extractBranchName extracts the branch name from "owner/repo:branch" format.
@@ -326,18 +313,12 @@ func extractBranchName(displayBranch string) string {
 	return displayBranch
 }
 
-// getWorktreePrefix returns the prefix for a worktree based on type and icon settings.
-func (f *Finder) getWorktreePrefix(isMain bool) string {
-	switch {
-	case f.useIcons && isMain:
-		return iconRepo
-	case f.useIcons:
-		return iconWorktree
-	case isMain:
-		return "[main]"
-	default:
-		return ""
+// getWorktreeLabel returns a clear worktree type label.
+func getWorktreeLabel(isMain bool) string {
+	if isMain {
+		return "MAIN:"
 	}
+	return "WT:"
 }
 
 // generateWorktreePreview generates preview content for a worktree.

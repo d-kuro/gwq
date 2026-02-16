@@ -342,12 +342,33 @@ setup_commands = ["npm install"]
 
 ### Key Settings
 
-| Setting            | Description                           | Default                                            |
-| ------------------ | ------------------------------------- | -------------------------------------------------- |
-| `worktree.basedir` | Base directory for worktrees          | `~/worktrees`                                      |
-| `naming.template`  | Directory naming template             | `{{.Host}}/{{.Owner}}/{{.Repository}}/{{.Branch}}` |
-| `ui.tilde_home`    | Display `~` instead of full home path | `true`                                             |
-| `ui.icons`         | Show icons in output                  | `true`                                             |
+| Setting                   | Description                           | Default                                            |
+| ------------------------- | ------------------------------------- | -------------------------------------------------- |
+| `worktree.basedir`        | Base directory for worktrees          | `~/worktrees`                                      |
+| `naming.template`         | Directory naming template             | `{{.Host}}/{{.Owner}}/{{.Repository}}/{{.Branch}}` |
+| `naming.display_template` | Fuzzy finder display template         | Empty (built-in default format)                    |
+| `ui.tilde_home`           | Display `~` instead of full home path | `true`                                             |
+| `ui.icons`                | Show icons in output                  | `true`                                             |
+
+### Fuzzy Finder Display Template
+
+Use `naming.display_template` to customize how each worktree row is rendered in the fuzzy finder.
+
+Available variables:
+
+- `Host`
+- `Owner`
+- `Repository`
+- `Branch`
+- `Path`
+- `IsMain`
+
+Example: reproduce the old `main`-branch style (`[main]` only for main worktree):
+
+```toml
+[naming]
+display_template = "{{if .IsMain}}[main] {{end}}{{.Branch}} ({{.Path}})"
+```
 
 ### Per-Repository Setup
 
