@@ -51,9 +51,37 @@ func TestCompletionBash_LaunchShellFalse(t *testing.T) {
 	}
 }
 
+func TestCompletionPowershell(t *testing.T) {
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	completionPowershellCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"completion", "powershell"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "Register-ArgumentCompleter") {
+		t.Error("powershell completion should contain Register-ArgumentCompleter")
+	}
+}
+
+func TestCompletionInvalidSubcommand(t *testing.T) {
+	rootCmd.SetArgs([]string{"completion", "invalid"})
+
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for invalid subcommand, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown command") {
+		t.Errorf("expected 'unknown command' in error, got %q", err.Error())
+	}
+}
+
 func TestCompletionCmd_Structure(t *testing.T) {
-	if completionCmd.Use != "completion [bash|zsh|fish]" {
-		t.Errorf("completionCmd.Use = %q, want %q", completionCmd.Use, "completion [bash|zsh|fish]")
+	if completionCmd.Use != "completion [bash|zsh|fish|powershell]" {
+		t.Errorf("completionCmd.Use = %q, want %q", completionCmd.Use, "completion [bash|zsh|fish|powershell]")
 	}
 
 	// Verify subcommands exist
@@ -62,7 +90,7 @@ func TestCompletionCmd_Structure(t *testing.T) {
 	for _, cmd := range subcommands {
 		names[cmd.Name()] = true
 	}
-	for _, expected := range []string{"bash", "zsh", "fish"} {
+	for _, expected := range []string{"bash", "zsh", "fish", "powershell"} {
 		if !names[expected] {
 			t.Errorf("completion command should have %q subcommand", expected)
 		}

@@ -7,7 +7,7 @@ import (
 )
 
 var completionCmd = &cobra.Command{
-	Use:   "completion [bash|zsh|fish]",
+	Use:   "completion [bash|zsh|fish|powershell]",
 	Short: "Generate shell completion and integration scripts",
 	Long: `Generate shell completion scripts with optional shell integration.
 
@@ -22,7 +22,14 @@ in the current shell without launching a new shell.
   source <(gwq completion zsh)
 
   # fish (~/.config/fish/config.fish)
-  gwq completion fish | source`,
+  gwq completion fish | source
+
+  # powershell
+  gwq completion powershell | Out-String | Invoke-Expression`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return cmd.Help()
+	},
 }
 
 var completionBashCmd = &cobra.Command{
@@ -67,9 +74,18 @@ var completionFishCmd = &cobra.Command{
 	},
 }
 
+var completionPowershellCmd = &cobra.Command{
+	Use:   "powershell",
+	Short: "Generate powershell completion script",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return cmd.Root().GenPowerShellCompletionWithDesc(cmd.OutOrStdout())
+	},
+}
+
 func init() {
 	completionCmd.AddCommand(completionBashCmd)
 	completionCmd.AddCommand(completionZshCmd)
 	completionCmd.AddCommand(completionFishCmd)
+	completionCmd.AddCommand(completionPowershellCmd)
 	rootCmd.AddCommand(completionCmd)
 }
