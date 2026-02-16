@@ -280,9 +280,9 @@ func (f *Finder) formatWorktreeForDisplay(wt models.Worktree) string {
 	// Use custom template if configured.
 	if f.displayProcessor != nil {
 		data := &template.DisplayTemplateData{
-			Branch:     extractBranchName(wt.Branch),
-			Path:       path,
-			IsMain:     wt.IsMain,
+			Branch: extractBranchName(wt.Branch),
+			Path:   path,
+			IsMain: wt.IsMain,
 		}
 		if wt.RepositoryInfo != nil {
 			data.Host = wt.RepositoryInfo.Host
