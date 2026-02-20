@@ -10,7 +10,8 @@ function {{.CommandName}} --wraps={{.CommandName}}
                 return $status
             end
         end
-        set -l __gwq_result (env __GWQ_CD_SHIM=1 command {{.CommandName}} cd $argv[2..-1])
+        set -lx __GWQ_CD_SHIM 1
+        set -l __gwq_result (command {{.CommandName}} cd $argv[2..-1])
         set -l __gwq_st $status
         if test $__gwq_st -eq 0; and test -n "$__gwq_result"
             builtin cd $__gwq_result
