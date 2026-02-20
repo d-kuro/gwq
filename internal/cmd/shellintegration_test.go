@@ -51,6 +51,115 @@ func TestCompletionBash_LaunchShellFalse(t *testing.T) {
 	}
 }
 
+func TestCompletionBash_OutputsCompletionScript(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(func() { viper.Reset() })
+	viper.Set("cd.launch_shell", true)
+
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	completionBashCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"completion", "bash"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "__start_gwq") {
+		t.Error("bash completion should contain __start_gwq")
+	}
+	if !strings.Contains(output, "COMPREPLY") {
+		t.Error("bash completion should contain COMPREPLY")
+	}
+}
+
+func TestCompletionFish(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(func() { viper.Reset() })
+	viper.Set("cd.launch_shell", true)
+
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	completionFishCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"completion", "fish"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "complete -c gwq") {
+		t.Error("fish completion should contain 'complete -c gwq'")
+	}
+}
+
+func TestCompletionZsh(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(func() { viper.Reset() })
+	viper.Set("cd.launch_shell", true)
+
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	completionZshCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"completion", "zsh"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "compdef") {
+		t.Error("zsh completion should contain 'compdef'")
+	}
+}
+
+func TestCompletionZsh_LaunchShellFalse(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(func() { viper.Reset() })
+	viper.Set("cd.launch_shell", false)
+
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	completionZshCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"completion", "zsh"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "compdef") {
+		t.Error("zsh completion should contain 'compdef'")
+	}
+	if !strings.Contains(output, "__GWQ_CD_SHIM") {
+		t.Error("launch_shell=false should include wrapper function with __GWQ_CD_SHIM")
+	}
+}
+
+func TestCompletionFish_LaunchShellFalse(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(func() { viper.Reset() })
+	viper.Set("cd.launch_shell", false)
+
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	completionFishCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"completion", "fish"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "complete -c gwq") {
+		t.Error("fish completion should contain 'complete -c gwq'")
+	}
+	if !strings.Contains(output, "__GWQ_CD_SHIM") {
+		t.Error("launch_shell=false should include wrapper function with __GWQ_CD_SHIM")
+	}
+}
+
 func TestCompletionPowershell(t *testing.T) {
 	var buf bytes.Buffer
 	rootCmd.SetOut(&buf)
