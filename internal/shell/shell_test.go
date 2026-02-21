@@ -53,8 +53,8 @@ func TestWriteWrapper_Fish(t *testing.T) {
 	if !strings.Contains(output, "function gwq") {
 		t.Error("fish wrapper should contain function gwq")
 	}
-	if !strings.Contains(output, "env __GWQ_CD_SHIM=1") {
-		t.Error("fish wrapper should contain env __GWQ_CD_SHIM=1")
+	if !strings.Contains(output, "set -lx __GWQ_CD_SHIM 1") {
+		t.Error("fish wrapper should contain set -lx __GWQ_CD_SHIM 1")
 	}
 }
 

@@ -121,11 +121,12 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Set %s = %v (%s)\n", key, typedValue, target)
 
 	if key == "cd.launch_shell" {
-		fmt.Fprintln(cmd.ErrOrStderr(), "\nTo apply this change, reload your shell integration:")
-		fmt.Fprintln(cmd.ErrOrStderr(), "  source <(gwq completion bash)   # bash")
-		fmt.Fprintln(cmd.ErrOrStderr(), "  source <(gwq completion zsh)    # zsh")
-		fmt.Fprintln(cmd.ErrOrStderr(), "  gwq completion fish | source    # fish")
-		fmt.Fprintln(cmd.ErrOrStderr(), "Or: exec $SHELL")
+		w := cmd.ErrOrStderr()
+		_, _ = fmt.Fprintln(w, "\nTo apply this change, reload your shell integration:")
+		_, _ = fmt.Fprintln(w, "  source <(gwq completion bash)   # bash")
+		_, _ = fmt.Fprintln(w, "  source <(gwq completion zsh)    # zsh")
+		_, _ = fmt.Fprintln(w, "  gwq completion fish | source    # fish")
+		_, _ = fmt.Fprintln(w, "Or: exec $SHELL")
 	}
 
 	return nil
