@@ -28,9 +28,15 @@ type CommitInfo struct {
 	Date    time.Time `json:"date"`    // Commit date
 }
 
+// CdConfig contains configuration for the cd command behavior.
+type CdConfig struct {
+	LaunchShell bool `mapstructure:"launch_shell"` // Whether to launch a new shell on cd
+}
+
 // Config represents the application configuration.
 type Config struct {
 	Worktree           WorktreeConfig      `mapstructure:"worktree"`            // Worktree-related configuration
+	Cd                 CdConfig            `mapstructure:"cd"`                  // Cd command configuration
 	Finder             FinderConfig        `mapstructure:"finder"`              // Fuzzy finder configuration
 	UI                 UIConfig            `mapstructure:"ui"`                  // UI-related configuration
 	Naming             NamingConfig        `mapstructure:"naming"`              // Naming and template configuration

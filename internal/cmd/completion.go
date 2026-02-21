@@ -115,6 +115,7 @@ func getConfigKeyCompletions(_ *cobra.Command, args []string, toComplete string)
 		{"ui.color", "Enable colored output"},
 		{"ui.icons", "Enable icon display"},
 		{"ui.tilde_home", "Display home directory as ~"},
+		{"cd.launch_shell", "Launch new shell on cd (default: true)"},
 	}
 
 	var completions []string

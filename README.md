@@ -157,6 +157,8 @@ gwq cd
 
 **Flags**: `-g` (global)
 
+> **Note**: By default, `gwq cd` launches a new shell. Set `cd.launch_shell = false` to change directory in the current shell instead. This requires shell integration — see [Shell Integration](#shell-integration) for setup. PowerShell is currently not supported for shell integration.
+
 ### `gwq exec`
 
 Execute command in worktree directory.
@@ -277,6 +279,8 @@ gwq prune
 
 ## Shell Integration
 
+The completion scripts provide both tab completion and `gwq cd` shell integration. When `cd.launch_shell` is set to `false`, the completion script includes a shell wrapper that allows `gwq cd` to change the directory in the current shell without launching a new shell. PowerShell is currently not supported for shell integration.
+
 ### Tab Completion
 
 **Bash:**
@@ -330,6 +334,9 @@ preview = true
 template = "{{.Host}}/{{.Owner}}/{{.Repository}}/{{.Branch}}"
 sanitize_chars = { "/" = "-", ":" = "-" }
 
+[cd]
+launch_shell = false  # Use shell integration instead of launching a new shell
+
 [ui]
 icons = true
 tilde_home = true
@@ -347,6 +354,7 @@ setup_commands = ["npm install"]
 | `worktree.basedir` | Base directory for worktrees          | `~/worktrees`                                      |
 | `naming.template`  | Directory naming template             | `{{.Host}}/{{.Owner}}/{{.Repository}}/{{.Branch}}` |
 | `ui.tilde_home`    | Display `~` instead of full home path | `true`                                             |
+| `cd.launch_shell`  | Launch a new shell for `gwq cd` (set `false` for shell integration) | `true`                                             |
 | `ui.icons`         | Show icons in output                  | `true`                                             |
 
 ### Per-Repository Setup

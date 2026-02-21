@@ -1,0 +1,25 @@
+
+# gwq shell integration
+# Enables 'gwq cd' to change the current shell's directory.
+{{.CommandName}}() {
+    if [[ "$1" == "cd" ]]; then
+        shift
+        # Pass through help flags directly to the binary
+        local __gwq_arg
+        for __gwq_arg in "$@"; do
+            case "$__gwq_arg" in
+                --help|-h)
+                    command {{.CommandName}} cd "$@"
+                    return $?
+                    ;;
+            esac
+        done
+        local __gwq_result
+        __gwq_result="$(__GWQ_CD_SHIM=1 command {{.CommandName}} cd "$@")" || return $?
+        if [[ -n "$__gwq_result" ]]; then
+            builtin cd "$__gwq_result" || return $?
+        fi
+    else
+        command {{.CommandName}} "$@"
+    fi
+}
