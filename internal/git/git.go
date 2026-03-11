@@ -4,6 +4,7 @@ package git
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -119,10 +120,19 @@ func (g *Git) AddWorktree(path, branch string, createBranch bool) error {
 
 // AddWorktreeFromBase creates a new worktree with a branch from a specific base branch.
 func (g *Git) AddWorktreeFromBase(path, branch, baseBranch string) error {
-	args := []string{"worktree", "add", "-b", branch, path}
+	branchExists, err := g.localBranchExists(branch)
+	if err != nil {
+		return fmt.Errorf("failed to check local branch %s: %w", branch, err)
+	}
 
-	if baseBranch != "" {
-		args = append(args, baseBranch)
+	args := []string{"worktree", "add"}
+	if branchExists {
+		args = append(args, path, branch)
+	} else {
+		args = append(args, "-b", branch, path)
+		if baseBranch != "" {
+			args = append(args, baseBranch)
+		}
 	}
 
 	if _, err := g.run(args...); err != nil {
@@ -130,6 +140,29 @@ func (g *Git) AddWorktreeFromBase(path, branch, baseBranch string) error {
 	}
 
 	return nil
+}
+
+func (g *Git) localBranchExists(branch string) (bool, error) {
+	cmd := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+	if g.workDir != "" {
+		cmd.Dir = g.workDir
+	}
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return false, nil
+		}
+		if stderr.Len() > 0 {
+			return false, fmt.Errorf("git show-ref --verify refs/heads/%s: %s", branch, strings.TrimSpace(stderr.String()))
+		}
+		return false, fmt.Errorf("git show-ref --verify refs/heads/%s: %w", branch, err)
+	}
+
+	return true, nil
 }
 
 // RemoveWorktree removes a worktree.

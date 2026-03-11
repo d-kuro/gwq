@@ -262,6 +262,94 @@ func TestAddWorktree(t *testing.T) {
 	})
 }
 
+func TestAddWorktreeFromBase(t *testing.T) {
+	setupRemoteBranch := func(t *testing.T, repo *TestRepository, branch string, keepLocalBranch bool) {
+		t.Helper()
+
+		remoteRepo := filepath.Join(t.TempDir(), "remote.git")
+		cmd := exec.Command("git", "clone", "--bare", repo.Path, remoteRepo)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("Failed to create bare clone: %v\nOutput: %s", err, output)
+		}
+
+		if err := repo.run("remote", "add", "origin", remoteRepo); err != nil {
+			t.Fatalf("Failed to add remote: %v", err)
+		}
+
+		repo.CreateBranch(t, branch)
+
+		testFile := filepath.Join(repo.Path, fmt.Sprintf("%s.txt", strings.ReplaceAll(branch, "/", "-")))
+		if err := os.WriteFile(testFile, []byte(branch), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+		if err := repo.run("add", "."); err != nil {
+			t.Fatalf("Failed to add files: %v", err)
+		}
+		if err := repo.run("commit", "-m", fmt.Sprintf("Commit for %s", branch)); err != nil {
+			t.Fatalf("Failed to commit: %v", err)
+		}
+		if err := repo.run("push", "-u", "origin", branch); err != nil {
+			t.Fatalf("Failed to push branch: %v", err)
+		}
+		if err := repo.run("checkout", "main"); err != nil {
+			t.Fatalf("Failed to checkout main: %v", err)
+		}
+
+		if !keepLocalBranch {
+			if err := repo.run("branch", "-D", branch); err != nil {
+				t.Fatalf("Failed to delete local branch %s: %v", branch, err)
+			}
+		}
+	}
+
+	t.Run("CreatesLocalBranchFromRemoteBase", func(t *testing.T) {
+		repo := NewTestRepository(t)
+		g := New(repo.Path)
+		branch := "feature/from-remote"
+		setupRemoteBranch(t, repo, branch, false)
+
+		worktreePath := filepath.Join(t.TempDir(), "from-remote")
+		if err := g.AddWorktreeFromBase(worktreePath, branch, "origin/"+branch); err != nil {
+			t.Fatalf("AddWorktreeFromBase() error = %v", err)
+		}
+
+		if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
+			t.Fatal("Worktree directory was not created")
+		}
+
+		branches, err := g.ListBranches(false)
+		if err != nil {
+			t.Fatalf("ListBranches(false) error = %v", err)
+		}
+		if !containsBranch(branches, branch) {
+			t.Fatalf("Local branch %q was not created", branch)
+		}
+	})
+
+	t.Run("ReusesExistingLocalBranch", func(t *testing.T) {
+		repo := NewTestRepository(t)
+		g := New(repo.Path)
+		branch := "feature/existing-local"
+		setupRemoteBranch(t, repo, branch, true)
+
+		worktreePath := filepath.Join(t.TempDir(), "existing-local")
+		if err := g.AddWorktreeFromBase(worktreePath, branch, "origin/"+branch); err != nil {
+			t.Fatalf("AddWorktreeFromBase() error = %v", err)
+		}
+
+		if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
+			t.Fatal("Worktree directory was not created")
+		}
+
+		expectedHead := revParse(t, repo.Path, branch)
+		actualHead := revParse(t, worktreePath, "HEAD")
+		if expectedHead != actualHead {
+			t.Errorf("Worktree HEAD = %s, want %s", actualHead, expectedHead)
+		}
+	})
+}
+
 func TestRemoveWorktree(t *testing.T) {
 	repo := NewTestRepository(t)
 	g := New(repo.Path)
@@ -579,4 +667,27 @@ func containsWorktreeWithPath(worktrees []models.Worktree, path string) bool {
 		}
 	}
 	return false
+}
+
+func containsBranch(branches []models.Branch, name string) bool {
+	for _, branch := range branches {
+		if branch.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func revParse(t *testing.T, dir, revision string) string {
+	t.Helper()
+
+	cmd := exec.Command("git", "rev-parse", revision)
+	cmd.Dir = dir
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git rev-parse %s failed: %v\nOutput: %s", revision, err, output)
+	}
+
+	return strings.TrimSpace(string(output))
 }
