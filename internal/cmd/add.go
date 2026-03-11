@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/d-kuro/gwq/internal/duration"
@@ -63,6 +64,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	return ExecuteWithArgs(true, func(ctx *CommandContext, cmd *cobra.Command, args []string) error {
 		var branch string
 		var path string
+		var baseBranch string
 
 		if addInteractive {
 			if len(args) > 0 {
@@ -81,8 +83,11 @@ func runAdd(cmd *cobra.Command, args []string) error {
 
 			branch = selectedBranch.Name
 			if selectedBranch.IsRemote {
-				branch = selectedBranch.Name[len("origin/"):]
-				addBranch = true
+				// Parse remote branch name generically (e.g., "origin/feature/x" → "feature/x")
+				baseBranch = selectedBranch.Name
+				if i := strings.IndexByte(selectedBranch.Name, '/'); i >= 0 && i+1 < len(selectedBranch.Name) {
+					branch = selectedBranch.Name[i+1:]
+				}
 			}
 		} else {
 			if len(args) < 1 {
@@ -100,7 +105,13 @@ func runAdd(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		worktreePath, err := ctx.WorktreeManager.Add(branch, path, addBranch)
+		var worktreePath string
+		var err error
+		if baseBranch != "" {
+			worktreePath, err = ctx.WorktreeManager.AddFromBase(branch, baseBranch, path)
+		} else {
+			worktreePath, err = ctx.WorktreeManager.Add(branch, path, addBranch)
+		}
 		if err != nil {
 			return err
 		}

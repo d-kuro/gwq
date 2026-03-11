@@ -174,7 +174,7 @@ func (g *Git) PruneWorktrees() error {
 
 // ListBranches returns a list of all branches.
 func (g *Git) ListBranches(includeRemote bool) ([]models.Branch, error) {
-	args := []string{"branch", "-v", "--format=%(refname:short)|%(HEAD)|%(committerdate:iso)|%(objectname)|%(subject)|%(authorname)"}
+	args := []string{"branch", "-v", "--format=%(refname)|%(HEAD)|%(committerdate:iso)|%(objectname)|%(subject)|%(authorname)"}
 	if includeRemote {
 		args = append(args, "-a")
 	}
@@ -204,9 +204,16 @@ func (g *Git) ListBranches(includeRemote bool) ([]models.Branch, error) {
 		message := parts[4]
 		author := parts[5]
 
-		isRemote := strings.HasPrefix(name, "remotes/")
+		isRemote := strings.HasPrefix(name, "refs/remotes/")
 		if isRemote {
-			name = strings.TrimPrefix(name, "remotes/")
+			name = strings.TrimPrefix(name, "refs/remotes/")
+			// Skip symbolic remote HEAD refs (e.g., origin/HEAD) but not
+			// legitimate branches like origin/feature/HEAD
+			if i := strings.IndexByte(name, '/'); i >= 0 && i < len(name)-1 && name[i+1:] == "HEAD" {
+				continue
+			}
+		} else {
+			name = strings.TrimPrefix(name, "refs/heads/")
 		}
 
 		date, _ := time.Parse("2006-01-02 15:04:05 -0700", dateStr)
