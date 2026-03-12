@@ -40,7 +40,7 @@ func ParseRepositoryURL(repoURL string) (*RepositoryInfo, error) {
 	}
 
 	owner := pathParts[0]
-	repository := pathParts[1]
+	repository := pathParts[len(pathParts)-1]
 
 	// Remove .git suffix if present
 	repository = strings.TrimSuffix(repository, ".git")
