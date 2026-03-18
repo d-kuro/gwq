@@ -9,8 +9,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/lipgloss/table"
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/table"
 )
 
 // Builder provides a convenient interface for creating styled tables using lipgloss/table
