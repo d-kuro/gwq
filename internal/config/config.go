@@ -187,6 +187,10 @@ func expandConfigPaths(cfg *models.Config) error {
 		if err != nil {
 			return fmt.Errorf("failed to expand repository setting path: %w", err)
 		}
+		// Resolve symlinks for consistent path comparison with git-derived paths
+		if resolved, err := filepath.EvalSymlinks(expandedPath); err == nil {
+			expandedPath = resolved
+		}
 		cfg.RepositorySettings[i].Repository = expandedPath
 	}
 	return nil
