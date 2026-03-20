@@ -343,7 +343,7 @@ func (c *StatusCollector) getLastActivity(path string) (time.Time, error) {
 func (c *StatusCollector) getLastActivityFromTrackedFiles(g *git.Git, path string) (time.Time, error) {
 	// Get list of tracked files
 	// Using -z for null-terminated output to handle filenames with spaces
-	output, err := g.Run("ls-files", "-z")
+	output, err := g.RunCommand("ls-files", "-z")
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -374,7 +374,7 @@ func (c *StatusCollector) getLastActivityFromTrackedFiles(g *git.Git, path strin
 func (c *StatusCollector) getLastActivityFromUntrackedFiles(g *git.Git, path string) time.Time {
 	var latestTime time.Time
 
-	untrackedOutput, err := g.Run("ls-files", "-z", "--others", "--exclude-standard")
+	untrackedOutput, err := g.RunCommand("ls-files", "-z", "--others", "--exclude-standard")
 	if err != nil {
 		return latestTime
 	}

@@ -516,6 +516,104 @@ func TestRunCommand(t *testing.T) {
 	}
 }
 
+func TestGetMainRepositoryPath(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, repo *TestRepository) string // returns workDir
+	}{
+		{
+			name: "from main repo root",
+			setup: func(t *testing.T, repo *TestRepository) string {
+				t.Helper()
+				return repo.Path
+			},
+		},
+		{
+			name: "from main repo subdirectory",
+			setup: func(t *testing.T, repo *TestRepository) string {
+				t.Helper()
+				subDir := filepath.Join(repo.Path, "sub", "dir")
+				if err := os.MkdirAll(subDir, 0755); err != nil {
+					t.Fatalf("failed to create subdir: %v", err)
+				}
+				return subDir
+			},
+		},
+		{
+			name: "from worktree root",
+			setup: func(t *testing.T, repo *TestRepository) string {
+				t.Helper()
+				repo.CreateBranch(t, "test-main-path")
+				wtPath := filepath.Join(t.TempDir(), "wt")
+				repo.CreateWorktree(t, wtPath, "test-main-path")
+				return wtPath
+			},
+		},
+		{
+			name: "from worktree subdirectory",
+			setup: func(t *testing.T, repo *TestRepository) string {
+				t.Helper()
+				repo.CreateBranch(t, "test-main-path-sub")
+				wtPath := filepath.Join(t.TempDir(), "wt-sub")
+				repo.CreateWorktree(t, wtPath, "test-main-path-sub")
+				subDir := filepath.Join(wtPath, "nested")
+				if err := os.MkdirAll(subDir, 0755); err != nil {
+					t.Fatalf("failed to create subdir: %v", err)
+				}
+				return subDir
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := NewTestRepository(t)
+			workDir := tt.setup(t, repo)
+			g := New(workDir)
+
+			got, err := g.GetMainRepositoryPath()
+			if err != nil {
+				t.Fatalf("GetMainRepositoryPath() error = %v", err)
+			}
+
+			resolvedGot, _ := filepath.EvalSymlinks(got)
+			resolvedWant, _ := filepath.EvalSymlinks(repo.Path)
+			if resolvedGot != resolvedWant {
+				t.Errorf("GetMainRepositoryPath() = %s, want %s", resolvedGot, resolvedWant)
+			}
+		})
+	}
+}
+
+func TestListWorktrees_IsMainFromWorktree(t *testing.T) {
+	repo := NewTestRepository(t)
+	repo.CreateBranch(t, "test-is-main")
+	wtPath := filepath.Join(t.TempDir(), "wt-is-main")
+	repo.CreateWorktree(t, wtPath, "test-is-main")
+
+	// Create Git instance from worktree path
+	g := New(wtPath)
+	worktrees, err := g.ListWorktrees()
+	if err != nil {
+		t.Fatalf("ListWorktrees() error = %v", err)
+	}
+
+	var foundMain bool
+	for _, wt := range worktrees {
+		if wt.IsMain {
+			foundMain = true
+			resolvedWtPath, _ := filepath.EvalSymlinks(wt.Path)
+			resolvedRepoPath, _ := filepath.EvalSymlinks(repo.Path)
+			if resolvedWtPath != resolvedRepoPath {
+				t.Errorf("Main worktree path = %s, want %s", resolvedWtPath, resolvedRepoPath)
+			}
+		}
+	}
+	if !foundMain {
+		t.Error("expected IsMain=true worktree not found")
+	}
+}
+
 // Helper function to compare worktrees with path resolution
 func containsWorktreeWithPath(worktrees []models.Worktree, path string) bool {
 	resolvedPath, _ := filepath.EvalSymlinks(path)

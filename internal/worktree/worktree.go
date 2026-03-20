@@ -2,14 +2,11 @@
 package worktree
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/d-kuro/gwq/internal/command"
-	"github.com/d-kuro/gwq/internal/filesystem"
 	"github.com/d-kuro/gwq/internal/template"
 	"github.com/d-kuro/gwq/internal/url"
 	"github.com/d-kuro/gwq/internal/utils"
@@ -27,6 +24,7 @@ type GitInterface interface {
 	GetRepositoryName() (string, error)
 	GetRecentCommits(path string, limit int) ([]models.CommitInfo, error)
 	GetRepositoryURL() (string, error)
+	GetMainRepositoryPath() (string, error)
 }
 
 // Manager handles worktree operations.
@@ -191,44 +189,6 @@ func (m *Manager) preparePath(customPath, branch string) (string, error) {
 	}
 
 	return path, nil
-}
-
-// runPostWorktreeSetup runs file copy and setup commands for the new worktree.
-func (m *Manager) runPostWorktreeSetup(worktreePath string) {
-	repoRoot, _ := os.Getwd()
-
-	var repoSetting *models.RepositorySetting
-	for i, s := range m.config.RepositorySettings {
-		if utils.MatchPath(s.Repository, repoRoot) {
-			repoSetting = &m.config.RepositorySettings[i]
-			break
-		}
-	}
-
-	if repoSetting == nil {
-		return
-	}
-
-	// Copy files
-	for _, err := range CopyFilesWithGlob(filesystem.NewStandardFileSystem(), repoRoot, worktreePath, repoSetting.CopyFiles) {
-		fmt.Fprintf(os.Stderr, "[gwq] file copy error: %v\n", err)
-	}
-
-	// Run setup commands
-	outputs, setupErrs := RunSetupCommands(
-		context.Background(),
-		command.NewStandardExecutor(),
-		worktreePath,
-		repoSetting.SetupCommands,
-	)
-	for i, out := range outputs {
-		if out != "" {
-			fmt.Fprintf(os.Stderr, "[gwq] setup command output: %s\n", out)
-		}
-		if i < len(setupErrs) && setupErrs[i] != nil {
-			fmt.Fprintf(os.Stderr, "[gwq] setup command error: %v\n", setupErrs[i])
-		}
-	}
 }
 
 // generateWorktreePath generates a path for a new worktree using template configuration.

@@ -13,6 +13,7 @@ import (
 type mockGit struct {
 	worktrees         []models.Worktree
 	repoName          string
+	repoPath          string
 	addError          error
 	removeError       error
 	listError         error
@@ -77,6 +78,13 @@ func (m *mockGit) DeleteBranch(branch string, force bool) error {
 		return m.deleteBranchError
 	}
 	return nil
+}
+
+func (m *mockGit) GetMainRepositoryPath() (string, error) {
+	if m.repoPath == "" {
+		return "/mock/repo/path", nil
+	}
+	return m.repoPath, nil
 }
 
 func (m *mockGit) AddWorktreeFromBase(path, branch, baseBranch string) error {
@@ -492,16 +500,7 @@ func TestManagerAdd_ConfigurableSetupIntegration(t *testing.T) {
 		},
 	}
 
-	oldwd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get current wd: %v", err)
-	}
-	if err := os.Chdir(repoDir); err != nil {
-		t.Fatalf("failed to chdir: %v", err)
-	}
-	defer func() { _ = os.Chdir(oldwd) }()
-
-	mockG := &mockGit{}
+	mockG := &mockGit{repoPath: repoDir}
 	m := New(mockG, cfg)
 
 	_, err = m.Add("feature/test", filepath.Join(worktreeDir, "wt1"), false)
@@ -512,5 +511,48 @@ func TestManagerAdd_ConfigurableSetupIntegration(t *testing.T) {
 	copied := filepath.Join(worktreeDir, "wt1", "copyme.txt")
 	if _, err := os.Stat(copied); err != nil {
 		t.Errorf("expected file to be copied: %v", err)
+	}
+}
+
+func TestManagerAdd_SetupFromWorktreeContext(t *testing.T) {
+	repoDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to eval symlinks: %v", err)
+	}
+	worktreeDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to eval symlinks: %v", err)
+	}
+
+	srcFile := filepath.Join(repoDir, "copyme.txt")
+	if err := os.WriteFile(srcFile, []byte("from worktree"), 0644); err != nil {
+		t.Fatalf("failed to write src file: %v", err)
+	}
+
+	cfg := &models.Config{
+		Worktree: models.WorktreeConfig{
+			BaseDir:   worktreeDir,
+			AutoMkdir: true,
+		},
+		RepositorySettings: []models.RepositorySetting{
+			{
+				Repository: repoDir,
+				CopyFiles:  []string{"copyme.txt"},
+			},
+		},
+	}
+
+	// repoPath is repoDir but cwd is different — simulates running from worktree
+	mockG := &mockGit{repoPath: repoDir}
+	m := New(mockG, cfg)
+
+	_, err = m.Add("feature/wt-test", filepath.Join(worktreeDir, "wt1"), false)
+	if err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+
+	copied := filepath.Join(worktreeDir, "wt1", "copyme.txt")
+	if _, err := os.Stat(copied); err != nil {
+		t.Errorf("expected file to be copied from worktree context: %v", err)
 	}
 }
