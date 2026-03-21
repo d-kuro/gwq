@@ -63,6 +63,41 @@ func TestParseRepositoryURL(t *testing.T) {
 			wantRepo:  "repo",
 		},
 		{
+			name:      "SSH config alias",
+			input:     "workgit:myorg/myrepo.git",
+			wantHost:  "workgit",
+			wantOwner: "myorg",
+			wantRepo:  "myrepo",
+		},
+		{
+			name:      "SSH config alias without .git",
+			input:     "myalias:owner/repo",
+			wantHost:  "myalias",
+			wantOwner: "owner",
+			wantRepo:  "repo",
+		},
+		{
+			name:      "SSH config alias with nested path",
+			input:     "myhost:org/team/repo.git",
+			wantHost:  "myhost",
+			wantOwner: "org",
+			wantRepo:  "repo",
+		},
+		{
+			name:      "git@ with SSH config alias",
+			input:     "git@workgit:org/repo.git",
+			wantHost:  "workgit",
+			wantOwner: "org",
+			wantRepo:  "repo",
+		},
+		{
+			name:      "URL with port number",
+			input:     "localhost:8080/user/repo",
+			wantHost:  "localhost:8080",
+			wantOwner: "user",
+			wantRepo:  "repo",
+		},
+		{
 			name:    "single path component is invalid",
 			input:   "https://github.com/user",
 			wantErr: true,
@@ -99,6 +134,74 @@ func TestParseRepositoryURL(t *testing.T) {
 	}
 }
 
+func TestIsSCPLikeURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{
+			name:     "basic SSH config alias",
+			input:    "workgit:myorg/myrepo.git",
+			expected: true,
+		},
+		{
+			name:     "alias without .git",
+			input:    "myalias:owner/repo",
+			expected: true,
+		},
+		{
+			name:     "port number URL",
+			input:    "localhost:8080/user/repo",
+			expected: false,
+		},
+		{
+			name:     "port only without path",
+			input:    "localhost:8080",
+			expected: false,
+		},
+		{
+			name:     "URL with scheme",
+			input:    "https://github.com/user/repo",
+			expected: false,
+		},
+		{
+			name:     "git@ prefix",
+			input:    "git@github.com:user/repo.git",
+			expected: false,
+		},
+		{
+			name:     "empty path after colon",
+			input:    "host:",
+			expected: false,
+		},
+		{
+			name:     "no colon",
+			input:    "github.com/user/repo",
+			expected: false,
+		},
+		{
+			name:     "colon followed by slash",
+			input:    "host:/user/repo",
+			expected: false,
+		},
+		{
+			name:     "bracketed IPv6 address",
+			input:    "[::1]:8080/user/repo",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isSCPLikeURL(tt.input)
+			if result != tt.expected {
+				t.Errorf("isSCPLikeURL(%q) = %v, want %v", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestNormalizeURL(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -129,6 +232,31 @@ func TestNormalizeURL(t *testing.T) {
 			name:     "plain url gets https prefix",
 			input:    "github.com/user/repo.git",
 			expected: "https://github.com/user/repo.git",
+		},
+		{
+			name:     "SSH config alias SCP format",
+			input:    "workgit:myorg/myrepo.git",
+			expected: "https://workgit/myorg/myrepo.git",
+		},
+		{
+			name:     "SSH config alias without .git",
+			input:    "myalias:owner/repo",
+			expected: "https://myalias/owner/repo",
+		},
+		{
+			name:     "SSH config alias with nested path",
+			input:    "myhost:org/team/repo.git",
+			expected: "https://myhost/org/team/repo.git",
+		},
+		{
+			name:     "URL with port number is not SCP",
+			input:    "localhost:8080/user/repo",
+			expected: "https://localhost:8080/user/repo",
+		},
+		{
+			name:     "git@ with SSH config alias",
+			input:    "git@workgit:org/repo.git",
+			expected: "https://workgit/org/repo.git",
 		},
 	}
 
