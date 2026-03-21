@@ -78,6 +78,11 @@ func normalizeURL(repoURL string) string {
 			host = strings.TrimPrefix(host, "git@")
 			repoURL = fmt.Sprintf("https://%s/%s", host, path)
 		}
+	} else if isSCPLikeURL(repoURL) {
+		// SCP-like format without git@ prefix (e.g., SSH config alias)
+		// workgit:myorg/myrepo.git -> https://workgit/myorg/myrepo.git
+		host, path, _ := strings.Cut(repoURL, ":")
+		repoURL = fmt.Sprintf("https://%s/%s", host, path)
 	}
 
 	// Ensure https:// prefix
@@ -86,6 +91,44 @@ func normalizeURL(repoURL string) string {
 	}
 
 	return repoURL
+}
+
+// isSCPLikeURL checks if a URL string uses SCP-like syntax (host:path)
+// without a git@ prefix. This handles SSH config aliases like "workgit:org/repo.git".
+//
+// Limitation: "host:123/path" where the first path segment is all digits is treated
+// as a port number (host:port/path), not SCP-like. This means SSH aliases with
+// numeric-only first path segments are not detected. This is an acceptable tradeoff
+// since such paths are extremely rare in practice.
+func isSCPLikeURL(rawURL string) bool {
+	if strings.Contains(rawURL, "://") {
+		return false
+	}
+
+	if strings.HasPrefix(rawURL, "git@") {
+		return false
+	}
+
+	// Exclude bracketed IPv6 addresses (e.g., "[::1]:8080/user/repo")
+	if strings.HasPrefix(rawURL, "[") {
+		return false
+	}
+
+	_, after, found := strings.Cut(rawURL, ":")
+	if !found || after == "" {
+		return false
+	}
+
+	// Check if the segment before the first '/' is all digits (a port number).
+	portOrPath, _, _ := strings.Cut(after, "/")
+
+	for _, c := range portOrPath {
+		if c < '0' || c > '9' {
+			return true
+		}
+	}
+
+	return false
 }
 
 // sanitizeBranchName converts branch names to filesystem-safe names.
