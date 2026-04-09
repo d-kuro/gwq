@@ -69,6 +69,40 @@ setup_commands = ["touch bar"]
 	}
 }
 
+func TestRepositorySettingsGlobPatternPreserved(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(func() { viper.Reset() })
+	viper.SetConfigType("toml")
+	configTOML := `
+[[repository_settings]]
+repository = "**/cerebras/monolith"
+setup_commands = ["make_vscode"]
+
+[[repository_settings]]
+repository = "/tmp/exact-path"
+setup_commands = ["echo hi"]
+`
+	if err := viper.ReadConfig(strings.NewReader(configTOML)); err != nil {
+		t.Fatalf("Failed to read config: %v", err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Glob pattern should be preserved as-is (not expanded to absolute path)
+	if cfg.RepositorySettings[0].Repository != "**/cerebras/monolith" {
+		t.Errorf("Glob pattern was mangled: got %q, want %q",
+			cfg.RepositorySettings[0].Repository, "**/cerebras/monolith")
+	}
+
+	// Exact path should still be expanded normally
+	if cfg.RepositorySettings[1].Repository != "/tmp/exact-path" {
+		t.Errorf("Exact path was changed: got %q, want %q",
+			cfg.RepositorySettings[1].Repository, "/tmp/exact-path")
+	}
+}
+
 func TestLoadIgnoresLegacyClaudeSettings(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(func() {
