@@ -135,16 +135,12 @@ func extractWorktreeInfo(worktreePath string) (*GlobalWorktreeEntry, error) {
 		return nil, fmt.Errorf("failed to get commit hash: %w", err)
 	}
 
-	// Check if this is the main worktree (unlikely since we filtered for worktrees)
-	isMain := false
-
 	return &GlobalWorktreeEntry{
 		RepositoryURL:  repoURL,
 		RepositoryInfo: repoInfo,
 		Branch:         branch,
 		Path:           worktreePath,
 		CommitHash:     commitHash,
-		IsMain:         isMain,
 	}, nil
 }
 

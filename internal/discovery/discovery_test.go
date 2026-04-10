@@ -148,16 +148,14 @@ func TestDiscoverGlobalWorktrees_NoWorktrees(t *testing.T) {
 	}
 }
 
-func TestDiscoverGlobalWorktrees_IncludesMainWorktree(t *testing.T) {
-	baseDir := t.TempDir()
-
-	// Create a real git repo inside the base directory
-	repoDir := filepath.Join(baseDir, "github.com", "user", "repo", "main")
-	if err := os.MkdirAll(repoDir, 0755); err != nil {
+// initRepoAt creates and initializes a git repository at the given directory
+// with an initial commit and a remote.
+func initRepoAt(t *testing.T, dir, remoteURL string) *TestRepository {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatalf("Failed to create repo directory: %v", err)
 	}
-
-	repo := &TestRepository{Path: repoDir}
+	repo := &TestRepository{Path: dir}
 	if err := repo.run("init", "-b", "main"); err != nil {
 		t.Fatalf("Failed to init: %v", err)
 	}
@@ -167,7 +165,7 @@ func TestDiscoverGlobalWorktrees_IncludesMainWorktree(t *testing.T) {
 	if err := repo.run("config", "user.email", "test@test.com"); err != nil {
 		t.Fatalf("Failed to set user.email: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("# test\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# test\n"), 0644); err != nil {
 		t.Fatalf("Failed to write file: %v", err)
 	}
 	if err := repo.run("add", "."); err != nil {
@@ -176,7 +174,15 @@ func TestDiscoverGlobalWorktrees_IncludesMainWorktree(t *testing.T) {
 	if err := repo.run("commit", "-m", "init"); err != nil {
 		t.Fatalf("Failed to commit: %v", err)
 	}
-	repo.AddRemote(t, "origin", "https://github.com/user/repo.git")
+	repo.AddRemote(t, "origin", remoteURL)
+	return repo
+}
+
+func TestDiscoverGlobalWorktrees_IncludesMainWorktree(t *testing.T) {
+	baseDir := t.TempDir()
+
+	repoDir := filepath.Join(baseDir, "github.com", "user", "repo", "main")
+	initRepoAt(t, repoDir, "https://github.com/user/repo.git")
 
 	entries, err := DiscoverGlobalWorktrees(baseDir)
 	if err != nil {
@@ -198,32 +204,8 @@ func TestDiscoverGlobalWorktrees_IncludesMainWorktree(t *testing.T) {
 func TestDiscoverGlobalWorktrees_MainAndLinkedWorktrees(t *testing.T) {
 	baseDir := t.TempDir()
 
-	// Create main repo
 	repoDir := filepath.Join(baseDir, "github.com", "user", "repo", "main")
-	if err := os.MkdirAll(repoDir, 0755); err != nil {
-		t.Fatalf("Failed to create repo directory: %v", err)
-	}
-
-	repo := &TestRepository{Path: repoDir}
-	if err := repo.run("init", "-b", "main"); err != nil {
-		t.Fatalf("Failed to init: %v", err)
-	}
-	if err := repo.run("config", "user.name", "Test"); err != nil {
-		t.Fatalf("Failed to set user.name: %v", err)
-	}
-	if err := repo.run("config", "user.email", "test@test.com"); err != nil {
-		t.Fatalf("Failed to set user.email: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("# test\n"), 0644); err != nil {
-		t.Fatalf("Failed to write file: %v", err)
-	}
-	if err := repo.run("add", "."); err != nil {
-		t.Fatalf("Failed to add: %v", err)
-	}
-	if err := repo.run("commit", "-m", "init"); err != nil {
-		t.Fatalf("Failed to commit: %v", err)
-	}
-	repo.AddRemote(t, "origin", "https://github.com/user/repo.git")
+	repo := initRepoAt(t, repoDir, "https://github.com/user/repo.git")
 
 	// Create a branch and linked worktree
 	repo.CreateBranch(t, "feature")
@@ -258,38 +240,14 @@ func TestDiscoverGlobalWorktrees_MainAndLinkedWorktrees(t *testing.T) {
 	}
 }
 
-func TestDiscoverGlobalWorktrees_SkipsSubmodulesInsideMainRepo(t *testing.T) {
+func TestDiscoverGlobalWorktrees_DoesNotDescendIntoMainRepo(t *testing.T) {
 	baseDir := t.TempDir()
 
-	// Create a main repo with a fake submodule inside it
 	repoDir := filepath.Join(baseDir, "repo")
-	if err := os.MkdirAll(repoDir, 0755); err != nil {
-		t.Fatalf("Failed to create repo directory: %v", err)
-	}
+	initRepoAt(t, repoDir, "https://github.com/user/repo.git")
 
-	repo := &TestRepository{Path: repoDir}
-	if err := repo.run("init", "-b", "main"); err != nil {
-		t.Fatalf("Failed to init: %v", err)
-	}
-	if err := repo.run("config", "user.name", "Test"); err != nil {
-		t.Fatalf("Failed to set user.name: %v", err)
-	}
-	if err := repo.run("config", "user.email", "test@test.com"); err != nil {
-		t.Fatalf("Failed to set user.email: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("# test\n"), 0644); err != nil {
-		t.Fatalf("Failed to write file: %v", err)
-	}
-	if err := repo.run("add", "."); err != nil {
-		t.Fatalf("Failed to add: %v", err)
-	}
-	if err := repo.run("commit", "-m", "init"); err != nil {
-		t.Fatalf("Failed to commit: %v", err)
-	}
-	repo.AddRemote(t, "origin", "https://github.com/user/repo.git")
-
-	// SkipDir on the main repo means submodules inside it are never even visited.
-	// Verify only the main worktree is found.
+	// SkipDir on the main repo means nothing inside it (submodules, nested
+	// repos, etc.) is ever visited. Verify only the main worktree is found.
 	entries, err := DiscoverGlobalWorktrees(baseDir)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
