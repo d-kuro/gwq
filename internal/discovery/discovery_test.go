@@ -447,13 +447,23 @@ func TestIsSubmoduleGitDir(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:     "submodule gitdir",
+			name:     "submodule in main worktree",
 			gitDir:   "/path/to/repo/.git/modules/my-submodule",
 			expected: true,
 		},
 		{
-			name:     "relative submodule gitdir",
+			name:     "relative submodule in main worktree",
 			gitDir:   "../../.git/modules/my-submodule",
+			expected: true,
+		},
+		{
+			name:     "submodule in linked worktree",
+			gitDir:   "../../../repo/.git/worktrees/feature/modules/cm/lwip",
+			expected: true,
+		},
+		{
+			name:     "nested submodule in linked worktree",
+			gitDir:   "../../../repo/.git/worktrees/feature/modules/third_party/xgrammar/xgrammar/modules/3rdparty/googletest",
 			expected: true,
 		},
 		{
@@ -464,7 +474,7 @@ func TestIsSubmoduleGitDir(t *testing.T) {
 		{
 			name:     "windows submodule gitdir",
 			gitDir:   "C:\\repo\\.git\\modules\\my-submodule",
-			expected: true,
+			expected: filepath.Separator == '\\', // only matches on Windows where ToSlash converts
 		},
 	}
 

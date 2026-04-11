@@ -176,11 +176,14 @@ func getCurrentCommitHash(worktreePath string) (string, error) {
 }
 
 // isSubmoduleGitDir checks whether a gitdir path points to a submodule
-// rather than a worktree. Submodule gitdirs contain ".git/modules/" while
-// worktree gitdirs contain ".git/worktrees/".
+// rather than a linked worktree. Submodule gitdirs always contain a
+// "/modules/" segment — either under .git/modules/ (submodules in the main
+// worktree) or under .git/worktrees/<name>/modules/ (submodules in a linked
+// worktree). Linked worktree gitdirs point to .git/worktrees/<name> with no
+// trailing /modules/ path.
 func isSubmoduleGitDir(gitDir string) bool {
-	return strings.Contains(gitDir, ".git/modules/") ||
-		strings.Contains(gitDir, ".git\\modules\\")
+	normalized := filepath.ToSlash(gitDir)
+	return strings.Contains(normalized, "/modules/")
 }
 
 // ConvertToWorktreeModels converts GlobalWorktreeEntry to models.Worktree.
