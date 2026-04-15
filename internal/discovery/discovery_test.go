@@ -148,28 +148,117 @@ func TestDiscoverGlobalWorktrees_NoWorktrees(t *testing.T) {
 	}
 }
 
-func TestDiscoverGlobalWorktrees_SingleWorktree(t *testing.T) {
-	// Skip this test for now as it requires complex git setup
-	// TODO: Implement with mocked git operations
-	t.Skip("Skipping complex git test - needs mock implementation")
+// initRepoAt creates and initializes a git repository at the given directory
+// with an initial commit and a remote.
+func initRepoAt(t *testing.T, dir, remoteURL string) *TestRepository {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("Failed to create repo directory: %v", err)
+	}
+	repo := &TestRepository{Path: dir}
+	if err := repo.run("init", "-b", "main"); err != nil {
+		t.Fatalf("Failed to init: %v", err)
+	}
+	if err := repo.run("config", "user.name", "Test"); err != nil {
+		t.Fatalf("Failed to set user.name: %v", err)
+	}
+	if err := repo.run("config", "user.email", "test@test.com"); err != nil {
+		t.Fatalf("Failed to set user.email: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# test\n"), 0644); err != nil {
+		t.Fatalf("Failed to write file: %v", err)
+	}
+	if err := repo.run("add", "."); err != nil {
+		t.Fatalf("Failed to add: %v", err)
+	}
+	if err := repo.run("commit", "-m", "init"); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+	repo.AddRemote(t, "origin", remoteURL)
+	return repo
 }
 
-func TestDiscoverGlobalWorktrees_MultipleWorktrees(t *testing.T) {
-	// Skip this test for now as it requires complex git setup
-	// TODO: Implement with mocked git operations
-	t.Skip("Skipping complex git test - needs mock implementation")
+func TestDiscoverGlobalWorktrees_IncludesMainWorktree(t *testing.T) {
+	baseDir := t.TempDir()
+
+	repoDir := filepath.Join(baseDir, "github.com", "user", "repo", "main")
+	initRepoAt(t, repoDir, "https://github.com/user/repo.git")
+
+	entries, err := DiscoverGlobalWorktrees(baseDir)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("Expected 1 entry, got %d", len(entries))
+	}
+
+	if !entries[0].IsMain {
+		t.Error("Expected entry to be marked as main worktree")
+	}
+	if entries[0].Branch != "main" {
+		t.Errorf("Expected branch 'main', got '%s'", entries[0].Branch)
+	}
 }
 
-func TestDiscoverGlobalWorktrees_SkipsMainRepositories(t *testing.T) {
-	// Skip this test for now as it requires complex git setup
-	// TODO: Implement with mocked git operations
-	t.Skip("Skipping complex git test - needs mock implementation")
+func TestDiscoverGlobalWorktrees_MainAndLinkedWorktrees(t *testing.T) {
+	baseDir := t.TempDir()
+
+	repoDir := filepath.Join(baseDir, "github.com", "user", "repo", "main")
+	repo := initRepoAt(t, repoDir, "https://github.com/user/repo.git")
+
+	// Create a branch and linked worktree
+	repo.CreateBranch(t, "feature")
+	if err := repo.run("checkout", "main"); err != nil {
+		t.Fatalf("Failed to checkout main: %v", err)
+	}
+	worktreeDir := filepath.Join(baseDir, "github.com", "user", "repo", "feature")
+	repo.CreateWorktree(t, worktreeDir, "feature")
+
+	entries, err := DiscoverGlobalWorktrees(baseDir)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if len(entries) != 2 {
+		t.Fatalf("Expected 2 entries, got %d", len(entries))
+	}
+
+	var mainCount, linkedCount int
+	for _, e := range entries {
+		if e.IsMain {
+			mainCount++
+		} else {
+			linkedCount++
+		}
+	}
+	if mainCount != 1 {
+		t.Errorf("Expected 1 main worktree, got %d", mainCount)
+	}
+	if linkedCount != 1 {
+		t.Errorf("Expected 1 linked worktree, got %d", linkedCount)
+	}
 }
 
-func TestExtractWorktreeInfo_ValidWorktree(t *testing.T) {
-	// Skip this test for now as it requires complex git setup
-	// TODO: Implement with mocked git operations
-	t.Skip("Skipping complex git test - needs mock implementation")
+func TestDiscoverGlobalWorktrees_DoesNotDescendIntoMainRepo(t *testing.T) {
+	baseDir := t.TempDir()
+
+	repoDir := filepath.Join(baseDir, "repo")
+	initRepoAt(t, repoDir, "https://github.com/user/repo.git")
+
+	// SkipDir on the main repo means nothing inside it (submodules, nested
+	// repos, etc.) is ever visited. Verify only the main worktree is found.
+	entries, err := DiscoverGlobalWorktrees(baseDir)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("Expected 1 entry (main only), got %d", len(entries))
+	}
+	if !entries[0].IsMain {
+		t.Error("Expected entry to be marked as main worktree")
+	}
 }
 
 func TestGetCurrentBranch_InvalidPath(t *testing.T) {
@@ -338,6 +427,88 @@ func TestFilterGlobalWorktrees_EmptyPattern(t *testing.T) {
 	matches := FilterGlobalWorktrees(entries, "")
 	if len(matches) != 2 {
 		t.Errorf("Expected all entries to match empty pattern, got %d", len(matches))
+	}
+}
+
+func TestIsSubmoduleGitDir(t *testing.T) {
+	tests := []struct {
+		name     string
+		gitDir   string
+		expected bool
+	}{
+		{
+			name:     "worktree gitdir",
+			gitDir:   "/path/to/repo/.git/worktrees/feature-branch",
+			expected: false,
+		},
+		{
+			name:     "relative worktree gitdir",
+			gitDir:   "../../.git/worktrees/feature-branch",
+			expected: false,
+		},
+		{
+			name:     "submodule in main worktree",
+			gitDir:   "/path/to/repo/.git/modules/my-submodule",
+			expected: true,
+		},
+		{
+			name:     "relative submodule in main worktree",
+			gitDir:   "../../.git/modules/my-submodule",
+			expected: true,
+		},
+		{
+			name:     "submodule in linked worktree",
+			gitDir:   "../../../repo/.git/worktrees/feature/modules/cm/lwip",
+			expected: true,
+		},
+		{
+			name:     "nested submodule in linked worktree",
+			gitDir:   "../../../repo/.git/worktrees/feature/modules/third_party/xgrammar/xgrammar/modules/3rdparty/googletest",
+			expected: true,
+		},
+		{
+			name:     "nested submodule gitdir",
+			gitDir:   "/path/to/repo/.git/modules/outer/modules/inner",
+			expected: true,
+		},
+		{
+			name:     "windows submodule gitdir",
+			gitDir:   "C:\\repo\\.git\\modules\\my-submodule",
+			expected: filepath.Separator == '\\', // only matches on Windows where ToSlash converts
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isSubmoduleGitDir(tt.gitDir)
+			if result != tt.expected {
+				t.Errorf("isSubmoduleGitDir(%q) = %v, want %v", tt.gitDir, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestDiscoverGlobalWorktrees_SkipsSubmodules(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a directory with a submodule-style .git file
+	submoduleDir := filepath.Join(tmpDir, "my-submodule")
+	if err := os.MkdirAll(submoduleDir, 0755); err != nil {
+		t.Fatalf("Failed to create submodule directory: %v", err)
+	}
+
+	gitContent := "gitdir: /path/to/repo/.git/modules/my-submodule"
+	if err := os.WriteFile(filepath.Join(submoduleDir, ".git"), []byte(gitContent), 0644); err != nil {
+		t.Fatalf("Failed to create .git file: %v", err)
+	}
+
+	entries, err := DiscoverGlobalWorktrees(tmpDir)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if len(entries) != 0 {
+		t.Errorf("Expected no entries (submodule should be skipped), got %d", len(entries))
 	}
 }
 

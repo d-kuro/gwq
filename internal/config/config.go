@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/d-kuro/gwq/internal/utils"
 	"github.com/d-kuro/gwq/pkg/models"
@@ -183,7 +184,13 @@ func expandConfigPaths(cfg *models.Config) error {
 	cfg.Worktree.BaseDir = expandedPath
 
 	for i := range cfg.RepositorySettings {
-		expandedPath, err = utils.ExpandPath(cfg.RepositorySettings[i].Repository)
+		repo := cfg.RepositorySettings[i].Repository
+		// Skip path expansion for glob patterns — ExpandPath would prepend
+		// the CWD to relative globs like "**/owner/repo", breaking matching.
+		if strings.ContainsAny(repo, "*?[") {
+			continue
+		}
+		expandedPath, err = utils.ExpandPath(repo)
 		if err != nil {
 			return fmt.Errorf("failed to expand repository setting path: %w", err)
 		}

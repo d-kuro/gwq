@@ -48,35 +48,53 @@ func DiscoverGlobalWorktrees(baseDir string) ([]*GlobalWorktreeEntry, error) {
 			return nil // Skip errors and continue walking
 		}
 
-		// Skip if not a directory
 		if !info.IsDir() {
 			return nil
 		}
 
-		// Check if this directory contains a .git file (worktree marker)
-		gitFile := filepath.Join(path, ".git")
-		if _, err := os.Stat(gitFile); err != nil {
-			return nil // Not a git worktree, continue
+		// Skip .git directories themselves
+		if info.Name() == ".git" {
+			return filepath.SkipDir
 		}
 
-		// Try to determine if this is a worktree by reading .git file
-		gitContent, err := os.ReadFile(gitFile)
+		gitPath := filepath.Join(path, ".git")
+		gitInfo, err := os.Stat(gitPath)
+		if err != nil {
+			return nil // No .git entry, continue
+		}
+
+		if gitInfo.IsDir() {
+			// Main worktree (.git is a directory)
+			entry, err := extractWorktreeInfo(path)
+			if err != nil {
+				return filepath.SkipDir // Skip broken repos but don't walk into them
+			}
+			entry.IsMain = true
+			entries = append(entries, entry)
+			return filepath.SkipDir // Don't descend into the repo
+		}
+
+		// Linked worktree (.git is a file)
+		gitContent, err := os.ReadFile(gitPath)
 		if err != nil {
 			return nil
 		}
 
 		gitContentStr := strings.TrimSpace(string(gitContent))
 		if !strings.HasPrefix(gitContentStr, "gitdir: ") {
-			return nil // Not a worktree, it's a main repository
-		}
-
-		// This is a worktree, extract information
-		entry, err := extractWorktreeInfo(path)
-		if err != nil {
-			// Log error but continue discovery
 			return nil
 		}
 
+		// Skip submodules — their gitdir points to .git/modules/...
+		gitDir := strings.TrimPrefix(gitContentStr, "gitdir: ")
+		if isSubmoduleGitDir(gitDir) {
+			return nil
+		}
+
+		entry, err := extractWorktreeInfo(path)
+		if err != nil {
+			return nil
+		}
 		entries = append(entries, entry)
 		return nil
 	})
@@ -117,16 +135,12 @@ func extractWorktreeInfo(worktreePath string) (*GlobalWorktreeEntry, error) {
 		return nil, fmt.Errorf("failed to get commit hash: %w", err)
 	}
 
-	// Check if this is the main worktree (unlikely since we filtered for worktrees)
-	isMain := false
-
 	return &GlobalWorktreeEntry{
 		RepositoryURL:  repoURL,
 		RepositoryInfo: repoInfo,
 		Branch:         branch,
 		Path:           worktreePath,
 		CommitHash:     commitHash,
-		IsMain:         isMain,
 	}, nil
 }
 
@@ -159,6 +173,17 @@ func getCurrentCommitHash(worktreePath string) (string, error) {
 	}
 
 	return strings.TrimSpace(output), nil
+}
+
+// isSubmoduleGitDir checks whether a gitdir path points to a submodule
+// rather than a linked worktree. Submodule gitdirs always contain a
+// "/modules/" segment — either under .git/modules/ (submodules in the main
+// worktree) or under .git/worktrees/<name>/modules/ (submodules in a linked
+// worktree). Linked worktree gitdirs point to .git/worktrees/<name> with no
+// trailing /modules/ path.
+func isSubmoduleGitDir(gitDir string) bool {
+	normalized := filepath.ToSlash(gitDir)
+	return strings.Contains(normalized, "/modules/")
 }
 
 // ConvertToWorktreeModels converts GlobalWorktreeEntry to models.Worktree.
