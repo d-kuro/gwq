@@ -48,6 +48,7 @@ type RepositorySetting struct {
 	Repository    string   `mapstructure:"repository"`     // Path or pattern for repository
 	SetupCommands []string `mapstructure:"setup_commands"` // Commands to run in new worktree
 	CopyFiles     []string `mapstructure:"copy_files"`     // Files/globs to copy into new worktree
+	BaseDir       string   `mapstructure:"basedir"`        // Override global worktree.basedir for this repository
 }
 
 // WorktreeConfig contains worktree-specific configuration options.

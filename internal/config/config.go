@@ -187,18 +187,27 @@ func expandConfigPaths(cfg *models.Config) error {
 		repo := cfg.RepositorySettings[i].Repository
 		// Skip path expansion for glob patterns — ExpandPath would prepend
 		// the CWD to relative globs like "**/owner/repo", breaking matching.
-		if strings.ContainsAny(repo, "*?[") {
-			continue
+		if !strings.ContainsAny(repo, "*?[") {
+			expandedPath, err = utils.ExpandPath(repo)
+			if err != nil {
+				return fmt.Errorf("failed to expand repository setting path: %w", err)
+			}
+			// Resolve symlinks for consistent path comparison with git-derived paths
+			if resolved, err := filepath.EvalSymlinks(expandedPath); err == nil {
+				expandedPath = resolved
+			}
+			cfg.RepositorySettings[i].Repository = expandedPath
 		}
-		expandedPath, err = utils.ExpandPath(repo)
-		if err != nil {
-			return fmt.Errorf("failed to expand repository setting path: %w", err)
+
+		// BaseDir is a destination path (not compared against git-derived paths),
+		// so symlink resolution is not needed here.
+		if baseDir := cfg.RepositorySettings[i].BaseDir; baseDir != "" {
+			expanded, err := utils.ExpandPath(baseDir)
+			if err != nil {
+				return fmt.Errorf("failed to expand repository basedir: %w", err)
+			}
+			cfg.RepositorySettings[i].BaseDir = expanded
 		}
-		// Resolve symlinks for consistent path comparison with git-derived paths
-		if resolved, err := filepath.EvalSymlinks(expandedPath); err == nil {
-			expandedPath = resolved
-		}
-		cfg.RepositorySettings[i].Repository = expandedPath
 	}
 	return nil
 }

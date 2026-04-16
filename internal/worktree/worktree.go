@@ -205,26 +205,38 @@ func (m *Manager) generateWorktreePath(branch string) (string, error) {
 		return "", fmt.Errorf("failed to parse repository URL: %w", err)
 	}
 
+	// Determine effective base directory: per-repo setting overrides global
+	baseDir := m.config.Worktree.BaseDir
+	if len(m.config.RepositorySettings) > 0 {
+		repoRoot, err := m.git.GetMainRepositoryPath()
+		if err != nil {
+			return "", fmt.Errorf("failed to get repository path: %w", err)
+		}
+		if setting := findRepoSetting(m.config.RepositorySettings, repoRoot); setting != nil && setting.BaseDir != "" {
+			baseDir = setting.BaseDir
+		}
+	}
+
 	// Use template if configured, otherwise fall back to default URL hierarchy
 	if m.config.Naming.Template != "" {
 		// Create template processor
 		processor, err := template.New(m.config.Naming.Template, m.config.Naming.SanitizeChars)
 		if err != nil {
 			// Fall back to default hierarchy if template is invalid
-			return url.GenerateWorktreePath(m.config.Worktree.BaseDir, repoInfo, branch), nil
+			return url.GenerateWorktreePath(baseDir, repoInfo, branch), nil
 		}
 
 		// Generate path using template
-		path, err := processor.GeneratePath(m.config.Worktree.BaseDir, repoInfo, branch)
+		path, err := processor.GeneratePath(baseDir, repoInfo, branch)
 		if err != nil {
 			// Fall back to default hierarchy if template execution fails
-			return url.GenerateWorktreePath(m.config.Worktree.BaseDir, repoInfo, branch), nil
+			return url.GenerateWorktreePath(baseDir, repoInfo, branch), nil
 		}
 
 		return path, nil
 	}
 
 	// Fall back to default URL hierarchy
-	path := url.GenerateWorktreePath(m.config.Worktree.BaseDir, repoInfo, branch)
+	path := url.GenerateWorktreePath(baseDir, repoInfo, branch)
 	return path, nil
 }
