@@ -345,6 +345,7 @@ tilde_home = true
 repository = "~/src/myproject"
 copy_files = ["templates/.env.example"]
 setup_commands = ["npm install"]
+basedir = "./worktrees"
 ```
 
 ### Key Settings
@@ -366,6 +367,7 @@ Configure automatic file copying and setup commands per repository. These settin
 repository = "~/src/myproject"
 copy_files = ["templates/.env.example", "config/*.json"]
 setup_commands = ["npm install", "npm run setup"]
+basedir = "./worktrees"
 ```
 
 #### Merge Behavior
@@ -436,6 +438,30 @@ For detailed configuration and shell function setup, see: [A Coding-Agent-Friend
 ```
 
 This structure prevents naming conflicts and preserves context about which repository a worktree belongs to.
+
+When a per-repository `basedir` is configured, worktrees are rooted there instead of the global basedir. The path within still follows the naming template:
+
+```
+~/src/myproject/
+├── worktrees/
+│   └── github.com/
+│       └── user/
+│           └── myproject/
+│               ├── feature-auth/
+│               └── feature-api/
+└── ...
+```
+
+To get a `<basedir>/<repo>/<branch>` structure, set `naming.template = "{{.Repository}}/{{.Branch}}"`. Note that `naming.template` is a global setting and affects all repositories:
+
+```
+~/src/myproject/
+├── worktrees/
+│   └── myproject/
+│       ├── feature-auth/
+│       └── feature-api/
+└── ...
+```
 
 ## Requirements
 

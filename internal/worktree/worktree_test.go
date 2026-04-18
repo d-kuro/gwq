@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,7 @@ type mockGit struct {
 	pruneError        error
 	deleteBranchError error
 	recentCommits     []models.CommitInfo
+	mainRepoPathError error
 }
 
 func (m *mockGit) ListWorktrees() ([]models.Worktree, error) {
@@ -81,6 +83,9 @@ func (m *mockGit) DeleteBranch(branch string, force bool) error {
 }
 
 func (m *mockGit) GetMainRepositoryPath() (string, error) {
+	if m.mainRepoPathError != nil {
+		return "", m.mainRepoPathError
+	}
 	if m.repoPath == "" {
 		return "/mock/repo/path", nil
 	}
@@ -421,10 +426,15 @@ func TestManagerValidateWorktreePath(t *testing.T) {
 
 func TestGenerateWorktreePath(t *testing.T) {
 	tests := []struct {
-		name       string
-		branch     string
-		repoName   string
-		wantSuffix string
+		name               string
+		branch             string
+		repoName           string
+		wantSuffix         string
+		repoPath           string
+		repositorySettings []models.RepositorySetting
+		mainRepoPathError  error
+		wantErr            bool
+		wantBaseDir        string // if non-empty, overrides "/base" in expected path
 	}{
 		{
 			name:       "BasicTemplate",
@@ -444,26 +454,72 @@ func TestGenerateWorktreePath(t *testing.T) {
 			repoName:   "myrepo",
 			wantSuffix: "github.com/test-user/test-repo/feature-test-new",
 		},
+		{
+			name:     "PerRepoBaseDir",
+			branch:   "feature/test",
+			repoName: "myrepo",
+			repoPath: "/mock/repo/path",
+			repositorySettings: []models.RepositorySetting{
+				{Repository: "/mock/repo/path", BaseDir: "/per-repo-base"},
+			},
+			wantSuffix:  "github.com/test-user/test-repo/feature-test",
+			wantBaseDir: "/per-repo-base",
+		},
+		{
+			name:     "PerRepoBaseDirEmpty",
+			branch:   "feature/test",
+			repoName: "myrepo",
+			repoPath: "/mock/repo/path",
+			repositorySettings: []models.RepositorySetting{
+				{Repository: "/mock/repo/path", BaseDir: ""},
+			},
+			wantSuffix: "github.com/test-user/test-repo/feature-test",
+		},
+		{
+			name:              "GetMainRepoPathError",
+			branch:            "feature/test",
+			repoName:          "myrepo",
+			mainRepoPathError: errors.New("git error"),
+			repositorySettings: []models.RepositorySetting{
+				{Repository: "/mock/repo/path", BaseDir: "/per-repo-base"},
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockG := &mockGit{repoName: tt.repoName}
+			mockG := &mockGit{
+				repoName:          tt.repoName,
+				repoPath:          tt.repoPath,
+				mainRepoPathError: tt.mainRepoPathError,
+			}
 
 			config := &models.Config{
 				Worktree: models.WorktreeConfig{
 					BaseDir: "/base",
 				},
+				RepositorySettings: tt.repositorySettings,
 			}
 
 			m := New(mockG, config)
 
 			path, err := m.generateWorktreePath(tt.branch)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("generateWorktreePath() expected error, got nil")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("generateWorktreePath() error = %v", err)
 			}
 
-			expectedPath := filepath.Join("/base", tt.wantSuffix)
+			baseDir := "/base"
+			if tt.wantBaseDir != "" {
+				baseDir = tt.wantBaseDir
+			}
+			expectedPath := filepath.Join(baseDir, tt.wantSuffix)
 			if path != expectedPath {
 				t.Errorf("generateWorktreePath() = %s, want %s", path, expectedPath)
 			}
