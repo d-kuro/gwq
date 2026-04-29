@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
@@ -203,5 +204,60 @@ func TestCompletionCmd_Structure(t *testing.T) {
 		if !names[expected] {
 			t.Errorf("completion command should have %q subcommand", expected)
 		}
+	}
+}
+
+func TestCompletion_LaunchShellFalse_WrapsAdd(t *testing.T) {
+	tests := []struct {
+		name     string
+		shell    string
+		cmd      *cobra.Command
+		needle   string // substring that must appear in the wrapper to prove it dispatches both cd and add
+		fallback string // alternative substring acceptable (e.g., fish syntax)
+	}{
+		{
+			name:   "bash dispatches cd|add via __gwq_shim_cd",
+			shell:  "bash",
+			cmd:    completionBashCmd,
+			needle: "cd|add)",
+		},
+		{
+			name:   "zsh dispatches cd|add via __gwq_shim_cd",
+			shell:  "zsh",
+			cmd:    completionZshCmd,
+			needle: "cd|add)",
+		},
+		{
+			name:     "fish dispatches cd add via switch",
+			shell:    "fish",
+			cmd:      completionFishCmd,
+			needle:   "case cd add",
+			fallback: "__gwq_shim_cd",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			viper.Reset()
+			t.Cleanup(func() { viper.Reset() })
+			viper.Set("cd.launch_shell", false)
+
+			var buf bytes.Buffer
+			rootCmd.SetOut(&buf)
+			tt.cmd.SetOut(&buf)
+			rootCmd.SetArgs([]string{"completion", tt.shell})
+
+			if err := rootCmd.Execute(); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+
+			output := buf.String()
+			if !strings.Contains(output, "__gwq_shim_cd") {
+				t.Errorf("%s wrapper should define __gwq_shim_cd helper", tt.shell)
+			}
+			if !strings.Contains(output, tt.needle) && (tt.fallback == "" || !strings.Contains(output, tt.fallback)) {
+				t.Errorf("%s wrapper should dispatch both cd and add (looking for %q or %q)", tt.shell, tt.needle, tt.fallback)
+			}
+		})
 	}
 }

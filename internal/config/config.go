@@ -128,6 +128,7 @@ func Init() error {
 	viper.AddConfigPath(configDir)
 
 	viper.SetDefault("cd.launch_shell", true)
+	viper.SetDefault("cd.auto_cd_on_add", false)
 	viper.SetDefault("worktree.basedir", "~/worktrees")
 	viper.SetDefault("worktree.auto_mkdir", true)
 	viper.SetDefault("finder.preview", true)

@@ -35,8 +35,8 @@ func TestWriteWrapper_Zsh(t *testing.T) {
 	if !strings.Contains(output, "gwq()") {
 		t.Error("zsh wrapper should contain gwq() function")
 	}
-	if !strings.Contains(output, `[[ "$1" == "cd" ]]`) {
-		t.Error("zsh wrapper should use [[ ]] syntax")
+	if !strings.Contains(output, "cd|add)") {
+		t.Error("zsh wrapper should dispatch both cd and add")
 	}
 	if !strings.Contains(output, "__GWQ_CD_SHIM=1") {
 		t.Error("zsh wrapper should contain __GWQ_CD_SHIM=1")

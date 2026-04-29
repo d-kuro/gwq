@@ -30,7 +30,8 @@ type CommitInfo struct {
 
 // CdConfig contains configuration for the cd command behavior.
 type CdConfig struct {
-	LaunchShell bool `mapstructure:"launch_shell"` // Whether to launch a new shell on cd
+	LaunchShell bool `mapstructure:"launch_shell"`   // Whether to launch a new shell on cd
+	AutoCdOnAdd bool `mapstructure:"auto_cd_on_add"` // Auto-cd after 'gwq add' under shell integration
 }
 
 // Config represents the application configuration.

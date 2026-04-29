@@ -47,6 +47,16 @@ func init() {
 
 const envCdShim = "__GWQ_CD_SHIM"
 
+// isCdShimActive reports whether the current process is running under the
+// shell integration shim for cd/add. The wrapper sets __GWQ_CD_SHIM=1 before
+// re-invoking the binary, and the env var is authoritative: once the wrapper
+// is sourced, it will consume our stdout regardless of the current value of
+// cd.launch_shell (which may have been toggled mid-session without reloading
+// the shell).
+func isCdShimActive() bool {
+	return os.Getenv(envCdShim) == "1"
+}
+
 func runCd(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -54,7 +64,7 @@ func runCd(cmd *cobra.Command, args []string) error {
 	}
 
 	// launch_shell=false without shell integration: show setup guidance
-	if !cfg.Cd.LaunchShell && os.Getenv(envCdShim) != "1" {
+	if !cfg.Cd.LaunchShell && !isCdShimActive() {
 		return fmt.Errorf(`'gwq cd' requires shell integration when cd.launch_shell is false.
 
 To enable shell integration, add this to your shell configuration:
@@ -92,7 +102,7 @@ Or, to use the old behavior (launching a new shell), run:
 	}
 
 	// Called from shell wrapper: print path to stdout
-	if !cfg.Cd.LaunchShell && os.Getenv(envCdShim) == "1" {
+	if isCdShimActive() {
 		fmt.Println(worktreePath)
 		return nil
 	}
