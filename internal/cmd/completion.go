@@ -116,6 +116,7 @@ func getConfigKeyCompletions(_ *cobra.Command, args []string, toComplete string)
 		{"ui.icons", "Enable icon display"},
 		{"ui.tilde_home", "Display home directory as ~"},
 		{"cd.launch_shell", "Launch new shell on cd (default: true)"},
+		{"cd.auto_cd_on_add", "Auto-cd after 'gwq add' under shell integration (default: false)"},
 	}
 
 	var completions []string

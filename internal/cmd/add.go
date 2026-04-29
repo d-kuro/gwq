@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"time"
 
 	"github.com/d-kuro/gwq/internal/duration"
@@ -100,49 +102,105 @@ func runAdd(cmd *cobra.Command, args []string) error {
 			}
 		}
 
+		// Validate --expires duration before creating the worktree so an
+		// invalid value does not leave a stray worktree behind. The actual
+		// ExpiresAt is computed after creation so the effective lifetime
+		// isn't shortened by setup time (e.g. repository_settings hooks).
+		var expiresDuration time.Duration
+		if addExpires != "" {
+			d, err := duration.Parse(addExpires)
+			if err != nil {
+				return fmt.Errorf("invalid --expires duration %q: %w", addExpires, err)
+			}
+			expiresDuration = d
+		}
+
 		worktreePath, err := ctx.WorktreeManager.Add(branch, path, addBranch)
 		if err != nil {
 			return err
 		}
 
-		ctx.Printer.PrintSuccess(fmt.Sprintf("Created worktree for branch '%s'", branch))
-
-		// Register worktree with expiration if --expires is specified
+		var expiresAt *time.Time
 		if addExpires != "" {
-			d, err := duration.Parse(addExpires)
-			if err != nil {
-				return fmt.Errorf("invalid expiration duration: %w", err)
-			}
-
-			expiresAt := time.Now().Add(d)
-
 			reg, err := registry.New()
 			if err != nil {
 				return fmt.Errorf("failed to open registry: %w", err)
 			}
 
-			// Get repository URL for the entry
 			repoURL, _ := ctx.Git.GetRepositoryURL()
+
+			t := time.Now().Add(expiresDuration)
+			expiresAt = &t
 
 			entry := &registry.WorktreeEntry{
 				Repository: repoURL,
 				Branch:     branch,
 				Path:       worktreePath,
 				IsMain:     false,
-				ExpiresAt:  &expiresAt,
+				ExpiresAt:  expiresAt,
 			}
 
 			if err := reg.Register(entry); err != nil {
 				return fmt.Errorf("failed to register worktree: %w", err)
 			}
-
-			ctx.Printer.PrintSuccess(fmt.Sprintf("Worktree expires at %s", expiresAt.Format(time.RFC3339)))
 		}
 
-		if addStay {
-			_ = LaunchShell(worktreePath)
-		}
-
+		handleAddPostCreate(
+			os.Stdout, os.Stderr,
+			isCdShimActive(),
+			ctx.Config.Cd.AutoCdOnAdd,
+			addResult{
+				Branch:    branch,
+				Path:      worktreePath,
+				Stay:      addStay,
+				ExpiresAt: expiresAt,
+			},
+			LaunchShell,
+		)
 		return nil
 	})(cmd, args)
+}
+
+// addResult carries the outcome of a successful `gwq add` into the
+// post-create output routing.
+type addResult struct {
+	Branch    string
+	Path      string
+	Stay      bool
+	ExpiresAt *time.Time
+}
+
+// handleAddPostCreate routes success messages and the worktree path to the
+// appropriate destinations after a successful `gwq add`.
+//
+// Under shell integration (inShim), success messages go to stderr and stdout
+// carries only the worktree path when a cd is wanted. When no cd is wanted,
+// stdout is left empty — the shell wrapper's "-n" guard then refuses to cd
+// into a success message.
+func handleAddPostCreate(
+	stdout, stderr io.Writer,
+	inShim, autoCdOnAdd bool,
+	r addResult,
+	launchShell func(string) error,
+) {
+	wantCd := r.Stay || autoCdOnAdd
+
+	msgDst := stdout
+	if inShim {
+		msgDst = stderr
+	}
+	_, _ = fmt.Fprintf(msgDst, "Created worktree for branch '%s'\n", r.Branch)
+	if r.ExpiresAt != nil {
+		_, _ = fmt.Fprintf(msgDst, "Worktree expires at %s\n", r.ExpiresAt.Format(time.RFC3339))
+	}
+
+	switch {
+	case inShim && wantCd:
+		_, _ = fmt.Fprintln(stdout, r.Path)
+	case inShim:
+		// stdout intentionally empty: shell wrapper's `if [[ -n "$__gwq_result" ]]`
+		// guard prevents an incorrect cd.
+	case r.Stay:
+		_ = launchShell(r.Path)
+	}
 }

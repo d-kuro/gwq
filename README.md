@@ -108,6 +108,8 @@ gwq add -s feature/new-ui
 
 **Flags**: `-b` (new branch), `-i` (interactive), `-s` (stay), `-f` (force)
 
+> **Note**: With shell integration and `cd.launch_shell = false`, `-s` changes the current shell's directory instead of spawning a nested shell. Set `cd.auto_cd_on_add = true` to auto-cd after every `gwq add` without `-s`.
+
 ### `gwq list` (alias: `ls`)
 
 Display all worktrees.
@@ -279,7 +281,7 @@ gwq prune
 
 ## Shell Integration
 
-The completion scripts provide both tab completion and `gwq cd` shell integration. When `cd.launch_shell` is set to `false`, the completion script includes a shell wrapper that allows `gwq cd` to change the directory in the current shell without launching a new shell. PowerShell is currently not supported for shell integration.
+The completion scripts provide both tab completion and shell integration for `gwq cd` and `gwq add`. When `cd.launch_shell` is set to `false`, the completion script includes a shell wrapper that allows these commands to change the directory in the current shell without launching a new shell. For `gwq add`, this applies to `-s`/`--stay` and to every successful add when `cd.auto_cd_on_add = true`. PowerShell is currently not supported for shell integration.
 
 ### Tab Completion
 
@@ -336,6 +338,7 @@ sanitize_chars = { "/" = "-", ":" = "-" }
 
 [cd]
 launch_shell = false  # Use shell integration instead of launching a new shell
+auto_cd_on_add = false  # Auto-cd after 'gwq add' when shell integration is active
 
 [ui]
 icons = true
@@ -350,13 +353,14 @@ basedir = "./worktrees"
 
 ### Key Settings
 
-| Setting            | Description                           | Default                                            |
-| ------------------ | ------------------------------------- | -------------------------------------------------- |
-| `worktree.basedir` | Base directory for worktrees          | `~/worktrees`                                      |
-| `naming.template`  | Directory naming template             | `{{.Host}}/{{.Owner}}/{{.Repository}}/{{.Branch}}` |
-| `ui.tilde_home`    | Display `~` instead of full home path | `true`                                             |
-| `cd.launch_shell`  | Launch a new shell for `gwq cd` (set `false` for shell integration) | `true`                                             |
-| `ui.icons`         | Show icons in output                  | `true`                                             |
+| Setting             | Description                                                         | Default                                            |
+| ------------------- | ------------------------------------------------------------------- | -------------------------------------------------- |
+| `worktree.basedir`  | Base directory for worktrees                                        | `~/worktrees`                                      |
+| `naming.template`   | Directory naming template                                           | `{{.Host}}/{{.Owner}}/{{.Repository}}/{{.Branch}}` |
+| `ui.tilde_home`     | Display `~` instead of full home path                               | `true`                                             |
+| `cd.launch_shell`   | Launch a new shell for `gwq cd` (set `false` for shell integration) | `true`                                             |
+| `cd.auto_cd_on_add` | Auto-cd after `gwq add` when shell integration is active            | `false`                                            |
+| `ui.icons`          | Show icons in output                                                | `true`                                             |
 
 ### Per-Repository Setup
 
