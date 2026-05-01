@@ -2,6 +2,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -44,24 +45,65 @@ func getLocalConfigPath() string {
 	return localConfigPath
 }
 
-// mergeLocalConfig merges the local config file (.gwq.toml) from the current directory.
-// Local config takes precedence over the global config.
-// For repository_settings, merging is done by the "repository" field as the key.
-func mergeLocalConfig() error {
-	localConfigPath := getLocalConfigPath()
-	if localConfigPath == "" {
+// mergeLocalConfig reads the local `.gwq.toml` from CWD and merges it into global viper.
+// Local config is treated as untrusted: it is only merged after the trust store confirms
+// (absolute path, sha256) match, or the user explicitly grants trust via the prompter.
+//
+//   - Non-regular files (directory / FIFO / socket / device) are skipped with a stderr warning.
+//   - If interactive is false (non-TTY), unknown files are skipped with a stderr warning.
+//   - On user rejection, the file is skipped (command continues, global config only).
+//   - Trust store write failures are non-fatal (merge proceeds with a stderr warning).
+//
+// For repository_settings, merging is done by the `repository` field as the key.
+func mergeLocalConfig(store *TrustStore, prompter trustPrompter, interactive bool) error {
+	rawPath := getLocalConfigPath()
+	if rawPath == "" {
 		return nil
 	}
 
-	localViper := viper.New()
-	localViper.SetConfigFile(localConfigPath)
-	localViper.SetConfigType(configType)
-
-	if err := localViper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return fmt.Errorf("failed to read local config %s: %w", localConfigPath, err)
-		}
+	absPath, err := normalizeConfigPath(rawPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gwq: skipping local config: %v\n", err)
 		return nil
+	}
+
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return fmt.Errorf("read local config %s: %w", absPath, err)
+	}
+	sum := computeSHA256(data)
+
+	if store == nil {
+		store, err = LoadTrustStore(defaultTrustStorePath())
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "gwq: failed to load trust store (continuing empty): %v\n", err)
+			store = &TrustStore{path: defaultTrustStorePath()}
+		}
+	}
+
+	if !store.IsTrusted(absPath, sum) {
+		if !interactive {
+			fmt.Fprintf(os.Stderr, "gwq: skipping untrusted local config %s (non-interactive session)\n", absPath)
+			return nil
+		}
+		granted, err := prompter.PromptTrust(absPath, data)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "gwq: trust prompt failed, skipping local config: %v\n", err)
+			return nil
+		}
+		if !granted {
+			fmt.Fprintf(os.Stderr, "gwq: local config %s not trusted, skipping\n", absPath)
+			return nil
+		}
+		if err := store.Add(absPath, sum); err != nil {
+			fmt.Fprintf(os.Stderr, "gwq: failed to persist trust decision (continuing): %v\n", err)
+		}
+	}
+
+	localViper := viper.New()
+	localViper.SetConfigType(configType)
+	if err := localViper.ReadConfig(bytes.NewReader(data)); err != nil {
+		return fmt.Errorf("parse local config %s: %w", absPath, err)
 	}
 
 	for _, key := range localViper.AllKeys() {
@@ -155,8 +197,10 @@ func Init() error {
 		}
 	}
 
-	// Merge local config from current directory if present
-	if err := mergeLocalConfig(); err != nil {
+	// Local config is untrusted: the prompter gates its loading so a cloned
+	// repository cannot auto-execute setup_commands. The trust store is loaded
+	// lazily inside mergeLocalConfig — no disk read when .gwq.toml is absent.
+	if err := mergeLocalConfig(nil, newStdioPrompter(), isStdinInteractive()); err != nil {
 		return fmt.Errorf("failed to merge local config: %w", err)
 	}
 
