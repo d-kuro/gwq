@@ -24,6 +24,22 @@ func changeDir(t *testing.T, dir string) {
 	}
 }
 
+// stubPrompter is a trustPrompter for tests. response controls what PromptTrust
+// returns; callCount records how many times it was invoked.
+type stubPrompter struct {
+	response  bool
+	callCount int
+}
+
+func (s *stubPrompter) PromptTrust(string, []byte) (bool, error) {
+	s.callCount++
+	return s.response, nil
+}
+
+func trustingPrompter() trustPrompter {
+	return &stubPrompter{response: true}
+}
+
 func TestRepositorySettingsParsing(t *testing.T) {
 	viper.Reset()
 	viper.SetConfigType("toml")
@@ -381,7 +397,7 @@ func TestMergeLocalConfig(t *testing.T) {
 		viper.Set("worktree.basedir", "~/global-worktrees")
 
 		// Merge local config (no file exists)
-		if err := mergeLocalConfig(); err != nil {
+		if err := mergeLocalConfig(&TrustStore{}, trustingPrompter(), true); err != nil {
 			t.Fatalf("mergeLocalConfig() error = %v", err)
 		}
 
@@ -417,7 +433,7 @@ preview = false
 		viper.Set("finder.preview", true)
 
 		// Merge local config
-		if err := mergeLocalConfig(); err != nil {
+		if err := mergeLocalConfig(&TrustStore{}, trustingPrompter(), true); err != nil {
 			t.Fatalf("mergeLocalConfig() error = %v", err)
 		}
 
@@ -457,7 +473,7 @@ template = "{{.Repository}}/{{.Branch}}"
 		viper.Set("naming.sanitize_chars", map[string]string{"/": "-"})
 
 		// Merge local config
-		if err := mergeLocalConfig(); err != nil {
+		if err := mergeLocalConfig(&TrustStore{}, trustingPrompter(), true); err != nil {
 			t.Fatalf("mergeLocalConfig() error = %v", err)
 		}
 
@@ -513,7 +529,7 @@ copy_files = [".env.old"]
 		}
 
 		// Merge local config
-		if err := mergeLocalConfig(); err != nil {
+		if err := mergeLocalConfig(&TrustStore{}, trustingPrompter(), true); err != nil {
 			t.Fatalf("mergeLocalConfig() error = %v", err)
 		}
 
@@ -600,7 +616,7 @@ setup_commands = ["yarn install"]
 		}
 
 		// Merge local config
-		if err := mergeLocalConfig(); err != nil {
+		if err := mergeLocalConfig(&TrustStore{}, trustingPrompter(), true); err != nil {
 			t.Fatalf("mergeLocalConfig() error = %v", err)
 		}
 
@@ -710,7 +726,7 @@ preview = false
 	}
 
 	// Merge local config (simulating Init behavior)
-	if err := mergeLocalConfig(); err != nil {
+	if err := mergeLocalConfig(&TrustStore{}, trustingPrompter(), true); err != nil {
 		t.Fatalf("Failed to merge local config: %v", err)
 	}
 
@@ -774,4 +790,277 @@ func TestSetLocal(t *testing.T) {
 	if localViper.GetBool("finder.preview") != false {
 		t.Error("Local config should contain the set value (finder.preview = false)")
 	}
+}
+
+// writeLocalConfig places a .gwq.toml in tmpDir and chdir's into it.
+// Returns the canonical absolute path (symlinks resolved).
+func writeLocalConfig(t *testing.T, tmpDir string, content []byte) (absPath string, data []byte) {
+	t.Helper()
+	realDir, err := filepath.EvalSymlinks(tmpDir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
+	path := filepath.Join(realDir, ".gwq.toml")
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	changeDir(t, realDir)
+	return path, content
+}
+
+func TestMergeLocalConfigTrust(t *testing.T) {
+	localTOML := []byte(`
+[worktree]
+basedir = "~/local-worktrees"
+
+[[repository_settings]]
+repository = "/shared/repo"
+setup_commands = ["echo from-local"]
+copy_files = [".env.local"]
+`)
+
+	t.Run("trusted: preloaded entry skips prompt and merges", func(t *testing.T) {
+		viper.Reset()
+		t.Cleanup(func() { viper.Reset() })
+		viper.SetConfigType("toml")
+		viper.Set("worktree.basedir", "~/global-worktrees")
+
+		absPath, data := writeLocalConfig(t, t.TempDir(), localTOML)
+		store := &TrustStore{
+			entries: []trustEntry{{Path: absPath, SHA256: computeSHA256(data)}},
+		}
+		prompter := &stubPrompter{response: false} // would deny if called
+
+		if err := mergeLocalConfig(store, prompter, true); err != nil {
+			t.Fatalf("mergeLocalConfig: %v", err)
+		}
+		if prompter.callCount != 0 {
+			t.Errorf("prompter should not be called for trusted file, got %d calls", prompter.callCount)
+		}
+		if viper.GetString("worktree.basedir") != "~/local-worktrees" {
+			t.Errorf("merge did not run: worktree.basedir = %s", viper.GetString("worktree.basedir"))
+		}
+	})
+
+	t.Run("sha256 mismatch denied: merge skipped, copy_files/basedir not applied", func(t *testing.T) {
+		viper.Reset()
+		t.Cleanup(func() { viper.Reset() })
+		viper.SetConfigType("toml")
+		viper.Set("worktree.basedir", "~/global-worktrees")
+
+		absPath, _ := writeLocalConfig(t, t.TempDir(), localTOML)
+		// Registered but with a stale hash
+		store := &TrustStore{
+			entries: []trustEntry{{Path: absPath, SHA256: "stale-hash"}},
+		}
+		prompter := &stubPrompter{response: false}
+
+		if err := mergeLocalConfig(store, prompter, true); err != nil {
+			t.Fatalf("mergeLocalConfig: %v", err)
+		}
+		if prompter.callCount != 1 {
+			t.Errorf("prompter should be called once for stale hash, got %d", prompter.callCount)
+		}
+		if viper.GetString("worktree.basedir") != "~/global-worktrees" {
+			t.Errorf("merge should be skipped, basedir = %s", viper.GetString("worktree.basedir"))
+		}
+		// repository_settings from local config should NOT be in viper
+		if rs, ok := viper.Get("repository_settings").([]any); ok && len(rs) > 0 {
+			t.Errorf("repository_settings should not be applied on denial, got %v", rs)
+		}
+	})
+
+	t.Run("new file accepted: merge runs and store is updated", func(t *testing.T) {
+		viper.Reset()
+		t.Cleanup(func() { viper.Reset() })
+		viper.SetConfigType("toml")
+		viper.Set("worktree.basedir", "~/global-worktrees")
+
+		absPath, data := writeLocalConfig(t, t.TempDir(), localTOML)
+		store := &TrustStore{} // empty in-memory
+		prompter := &stubPrompter{response: true}
+
+		if err := mergeLocalConfig(store, prompter, true); err != nil {
+			t.Fatalf("mergeLocalConfig: %v", err)
+		}
+		if prompter.callCount != 1 {
+			t.Errorf("prompter should be called once, got %d", prompter.callCount)
+		}
+		if viper.GetString("worktree.basedir") != "~/local-worktrees" {
+			t.Errorf("merge should run: basedir = %s", viper.GetString("worktree.basedir"))
+		}
+		if !store.IsTrusted(absPath, computeSHA256(data)) {
+			t.Error("store should be updated after accept")
+		}
+	})
+
+	t.Run("non-interactive: untrusted file is skipped without prompt", func(t *testing.T) {
+		viper.Reset()
+		t.Cleanup(func() { viper.Reset() })
+		viper.SetConfigType("toml")
+		viper.Set("worktree.basedir", "~/global-worktrees")
+
+		writeLocalConfig(t, t.TempDir(), localTOML)
+		store := &TrustStore{}
+		prompter := &stubPrompter{response: true} // would accept if called
+
+		if err := mergeLocalConfig(store, prompter, false); err != nil {
+			t.Fatalf("mergeLocalConfig: %v", err)
+		}
+		if prompter.callCount != 0 {
+			t.Errorf("prompter must not be called in non-interactive mode, got %d calls", prompter.callCount)
+		}
+		if viper.GetString("worktree.basedir") != "~/global-worktrees" {
+			t.Errorf("merge must be skipped: basedir = %s", viper.GetString("worktree.basedir"))
+		}
+	})
+
+	t.Run("store write failure: merge proceeds with warning", func(t *testing.T) {
+		viper.Reset()
+		t.Cleanup(func() { viper.Reset() })
+		viper.SetConfigType("toml")
+		viper.Set("worktree.basedir", "~/global-worktrees")
+
+		writeLocalConfig(t, t.TempDir(), localTOML)
+		// Store path under a nonexistent parent → MkdirAll inside a non-writable
+		// parent fails. Use a path whose parent is a file, which will fail.
+		badParent := filepath.Join(t.TempDir(), "not-a-dir")
+		if err := os.WriteFile(badParent, []byte("x"), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		store := &TrustStore{path: filepath.Join(badParent, "child", "trusted.json")}
+		prompter := &stubPrompter{response: true}
+
+		if err := mergeLocalConfig(store, prompter, true); err != nil {
+			t.Fatalf("mergeLocalConfig should not error on store write failure: %v", err)
+		}
+		if viper.GetString("worktree.basedir") != "~/local-worktrees" {
+			t.Errorf("merge should still run: basedir = %s", viper.GetString("worktree.basedir"))
+		}
+	})
+
+	t.Run("not regular file: merge skipped, no error", func(t *testing.T) {
+		viper.Reset()
+		t.Cleanup(func() { viper.Reset() })
+		viper.SetConfigType("toml")
+		viper.Set("worktree.basedir", "~/global-worktrees")
+
+		tmpDir, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatalf("EvalSymlinks: %v", err)
+		}
+		// Create .gwq.toml as a directory
+		if err := os.Mkdir(filepath.Join(tmpDir, ".gwq.toml"), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		changeDir(t, tmpDir)
+
+		store := &TrustStore{}
+		prompter := &stubPrompter{response: true}
+		if err := mergeLocalConfig(store, prompter, true); err != nil {
+			t.Fatalf("expected non-error on non-regular file, got %v", err)
+		}
+		if prompter.callCount != 0 {
+			t.Errorf("prompter should not be called for non-regular file, got %d", prompter.callCount)
+		}
+		if viper.GetString("worktree.basedir") != "~/global-worktrees" {
+			t.Errorf("merge should be skipped: basedir = %s", viper.GetString("worktree.basedir"))
+		}
+	})
+
+	t.Run("SetLocal invalidates trust: rewriting file changes sha256 and re-prompts", func(t *testing.T) {
+		viper.Reset()
+		t.Cleanup(func() { viper.Reset() })
+		viper.SetConfigType("toml")
+
+		absPath, data := writeLocalConfig(t, t.TempDir(), []byte("[worktree]\nbasedir = \"/v1\"\n"))
+		store := &TrustStore{
+			entries: []trustEntry{{Path: absPath, SHA256: computeSHA256(data)}},
+		}
+		prompter := &stubPrompter{response: true}
+
+		// First merge: trusted, no prompt
+		if err := mergeLocalConfig(store, prompter, true); err != nil {
+			t.Fatalf("first merge: %v", err)
+		}
+		if prompter.callCount != 0 {
+			t.Errorf("first merge should not prompt, got %d calls", prompter.callCount)
+		}
+
+		// Simulate SetLocal (which edits the file on disk).
+		if err := SetLocal("worktree.basedir", "/v2"); err != nil {
+			t.Fatalf("SetLocal: %v", err)
+		}
+
+		// Second merge: hash changed → re-prompt
+		if err := mergeLocalConfig(store, prompter, true); err != nil {
+			t.Fatalf("second merge: %v", err)
+		}
+		if prompter.callCount != 1 {
+			t.Errorf("second merge should prompt after SetLocal changed file, got %d calls", prompter.callCount)
+		}
+	})
+
+	// Denial must not leak repository_settings into the *models.Config returned
+	// by Load(), which is the struct the worktree Manager consumes to decide
+	// whether to run setup_commands.
+	t.Run("denied local config: Load() returns no leaked repository_settings", func(t *testing.T) {
+		viper.Reset()
+		t.Cleanup(func() { viper.Reset() })
+		viper.SetConfigType("toml")
+
+		writeLocalConfig(t, t.TempDir(), []byte(`
+[[repository_settings]]
+repository = "/mock/repo/path"
+setup_commands = ["sh -c 'touch /tmp/gwq-should-not-run'"]
+copy_files = [".env.evil"]
+`))
+		store := &TrustStore{}
+		prompter := &stubPrompter{response: false}
+
+		if err := mergeLocalConfig(store, prompter, true); err != nil {
+			t.Fatalf("mergeLocalConfig: %v", err)
+		}
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if len(cfg.RepositorySettings) != 0 {
+			t.Errorf("denied local config leaked %d repository_settings into Config: %+v",
+				len(cfg.RepositorySettings), cfg.RepositorySettings)
+		}
+	})
+
+	// Init() passes store=nil so the trust store is loaded lazily from disk
+	// only when a local .gwq.toml exists. Verify the lazy load runs and uses
+	// the on-disk store.
+	t.Run("nil store: lazy-load from disk", func(t *testing.T) {
+		viper.Reset()
+		t.Cleanup(func() { viper.Reset() })
+		viper.SetConfigType("toml")
+
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
+
+		absPath, data := writeLocalConfig(t, t.TempDir(), []byte("[worktree]\nbasedir = \"/from-local\"\n"))
+
+		// Seed trust store on disk so lazy-load finds it trusted.
+		onDisk := &TrustStore{path: defaultTrustStorePath()}
+		if err := onDisk.Add(absPath, computeSHA256(data)); err != nil {
+			t.Fatalf("seed trust store: %v", err)
+		}
+
+		prompter := &stubPrompter{response: false}
+		if err := mergeLocalConfig(nil, prompter, true); err != nil {
+			t.Fatalf("mergeLocalConfig: %v", err)
+		}
+		if prompter.callCount != 0 {
+			t.Errorf("lazy-loaded trust store should have trusted the file, got %d prompt calls", prompter.callCount)
+		}
+		if viper.GetString("worktree.basedir") != "/from-local" {
+			t.Errorf("merge should run: basedir = %s", viper.GetString("worktree.basedir"))
+		}
+	})
 }
