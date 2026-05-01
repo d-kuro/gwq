@@ -126,7 +126,8 @@ func (s *TrustStore) save() error {
 		}
 	}
 
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+	dir := filepath.Dir(s.path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create trust store dir: %w", err)
 	}
 
@@ -139,11 +140,14 @@ func (s *TrustStore) save() error {
 		return fmt.Errorf("marshal trust store: %w", err)
 	}
 
-	tmpPath := s.path + ".tmp"
-	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, trustStorePerm)
+	// os.CreateTemp uses O_CREATE|O_EXCL with a random suffix and mode 0600,
+	// so an attacker cannot pre-place a symlink at the temp path to redirect
+	// the write through.
+	f, err := os.CreateTemp(dir, filepath.Base(s.path)+".tmp-*")
 	if err != nil {
-		return fmt.Errorf("open trust store temp: %w", err)
+		return fmt.Errorf("create trust store temp: %w", err)
 	}
+	tmpPath := f.Name()
 	if _, err := f.Write(data); err != nil {
 		_ = f.Close()
 		_ = os.Remove(tmpPath)

@@ -253,9 +253,70 @@ func TestTrustStore_Add_AtomicNoTempLeftover(t *testing.T) {
 		t.Fatalf("ReadDir: %v", err)
 	}
 	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".tmp") {
+		if strings.Contains(e.Name(), ".tmp") {
 			t.Errorf("stale temp file left behind: %s", e.Name())
 		}
+	}
+}
+
+// TestTrustStore_Add_TempSymlinkAttackResisted ensures that save() cannot be
+// tricked into following a pre-placed symlink at the temp path and clobbering
+// an arbitrary file. os.CreateTemp uses O_CREATE|O_EXCL with a random suffix,
+// so decoys at predictable names are never opened for write.
+func TestTrustStore_Add_TempSymlinkAttackResisted(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink test not reliable on Windows")
+	}
+	dir := t.TempDir()
+	victimDir := t.TempDir()
+	victim := filepath.Join(victimDir, "victim")
+	if err := os.WriteFile(victim, []byte("DO-NOT-OVERWRITE"), 0o600); err != nil {
+		t.Fatalf("write victim: %v", err)
+	}
+
+	// Plant decoy symlinks at names an attacker might guess.
+	decoys := []string{
+		"trusted_configs.json.tmp",
+		"trusted_configs.json.tmp-",
+		"trusted_configs.json.tmp-0",
+	}
+	for _, d := range decoys {
+		if err := os.Symlink(victim, filepath.Join(dir, d)); err != nil {
+			t.Fatalf("symlink %s: %v", d, err)
+		}
+	}
+
+	s := &TrustStore{path: filepath.Join(dir, "trusted_configs.json")}
+	if err := s.Add("/abs/foo", "sha"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	data, err := os.ReadFile(victim)
+	if err != nil {
+		t.Fatalf("read victim: %v", err)
+	}
+	if string(data) != "DO-NOT-OVERWRITE" {
+		t.Errorf("decoy symlink was followed: victim content = %q", data)
+	}
+	// Decoys themselves should remain as symlinks (untouched).
+	for _, d := range decoys {
+		info, err := os.Lstat(filepath.Join(dir, d))
+		if err != nil {
+			t.Errorf("decoy %s missing: %v", d, err)
+			continue
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			t.Errorf("decoy %s is no longer a symlink", d)
+		}
+	}
+
+	// Trust store itself was written correctly.
+	reloaded, err := LoadTrustStore(s.path)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if !reloaded.IsTrusted("/abs/foo", "sha") {
+		t.Error("trust entry not persisted")
 	}
 }
 
