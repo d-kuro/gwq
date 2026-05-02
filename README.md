@@ -371,7 +371,7 @@ Configure automatic file copying and setup commands per repository. These settin
 repository = "~/src/myproject"
 copy_files = ["templates/.env.example", "config/*.json"]
 setup_commands = [
-    'echo "Created worktree for {{.Branch}}"',
+    "npm install",
     'echo "{{.Branch}}" > .worktree-branch',
 ]
 basedir = "./worktrees"
