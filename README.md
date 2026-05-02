@@ -372,7 +372,7 @@ repository = "~/src/myproject"
 copy_files = ["templates/.env.example", "config/*.json"]
 setup_commands = [
     "npm install",
-    'echo "worktree at {{.Path}}" > .gwq-setup.log',
+    'git config --local gwq.branch "{{.Branch}}"',
 ]
 basedir = "./worktrees"
 ```
@@ -394,8 +394,12 @@ Because commands go through `sh -c`, shell features like `~`, `&&`, pipes, and q
 
 ```toml
 setup_commands = [
-    'zellij action new-tab --name "{{.Branch}}" -- nvim .',
-    'ln -s "{{.Path}}/.memory" ~/memories/latest',
+    # Install dependencies in the new worktree
+    "npm install",
+    # Record which branch and commit this worktree was created from
+    'printf "branch=%s\npath=%s\n" "{{.Branch}}" "{{.Path}}" > .worktree-info',
+    # Launch your editor in the new worktree (replace $EDITOR as needed)
+    '$EDITOR "{{.Path}}" &',
 ]
 ```
 
