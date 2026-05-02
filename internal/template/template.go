@@ -19,6 +19,7 @@ type TemplateData struct {
 	Repository string // e.g., "myapp"
 	Branch     string // e.g., "feature/new-ui"
 	Hash       string // Short hash of the repository URL + branch
+	Path       string // Absolute worktree path (empty while rendering naming.template)
 }
 
 // Processor handles template processing for worktree path generation.
@@ -88,4 +89,11 @@ func (p *Processor) sanitizeBranch(branch string) string {
 func generateShortHash(input string) string {
 	hash := sha256.Sum256([]byte(input))
 	return fmt.Sprintf("%x", hash[:4]) // 8 character hex string
+}
+
+// ShortHash returns the 8-character short hash used to disambiguate worktrees.
+// Callers outside this package (e.g. setup_commands template data) share this
+// helper so the hash formula stays in one place.
+func ShortHash(input string) string {
+	return generateShortHash(input)
 }

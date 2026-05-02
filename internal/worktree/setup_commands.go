@@ -2,33 +2,36 @@ package worktree
 
 import (
 	"context"
-	"fmt"
 	"strings"
 )
 
-// RunSetupCommands executes each command in the given directory using the provided executor.
-// It returns a slice of errors (one per failed command, if any), and a slice of outputs (stdout+stderr per command).
-func RunSetupCommands(ctx context.Context, executor interface {
+// Executor is the minimal contract needed to run a setup command.
+// command.NewStandardExecutor() satisfies it; tests supply fakes.
+type Executor interface {
 	ExecuteInDirWithOutput(ctx context.Context, dir, name string, args ...string) (string, error)
-}, dir string, commands []string) (outputs []string, errs []error) {
+}
+
+// SetupResult is the outcome of running one setup command. Each field is
+// self-contained so callers do not need to correlate parallel output/error
+// slices by index.
+type SetupResult struct {
+	Command string
+	Output  string
+	Err     error
+}
+
+// RunSetupCommands runs each non-empty command string via `sh -c` in the
+// given directory. It returns one SetupResult per command actually executed
+// (empty or whitespace-only commands are skipped silently).
+func RunSetupCommands(ctx context.Context, executor Executor, dir string, commands []string) []SetupResult {
+	results := make([]SetupResult, 0, len(commands))
 	for _, cmd := range commands {
-		cmd = strings.TrimSpace(cmd)
-		if cmd == "" {
+		trimmed := strings.TrimSpace(cmd)
+		if trimmed == "" {
 			continue
 		}
-
-		parts := strings.Fields(cmd)
-		if len(parts) == 0 {
-			continue
-		}
-
-		name := parts[0]
-		args := parts[1:]
-		output, err := executor.ExecuteInDirWithOutput(ctx, dir, name, args...)
-		outputs = append(outputs, output)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", cmd, err))
-		}
+		output, err := executor.ExecuteInDirWithOutput(ctx, dir, "sh", "-c", trimmed)
+		results = append(results, SetupResult{Command: trimmed, Output: output, Err: err})
 	}
-	return outputs, errs
+	return results
 }
