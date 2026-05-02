@@ -371,8 +371,8 @@ Configure automatic file copying and setup commands per repository. These settin
 repository = "~/src/myproject"
 copy_files = ["templates/.env.example", "config/*.json"]
 setup_commands = [
-    "npm install",
-    'git config --local gwq.branch "{{.Branch}}"',
+    'echo "Created worktree for {{.Branch}}"',
+    'echo "{{.Branch}}" > .worktree-branch',
 ]
 basedir = "./worktrees"
 ```
@@ -394,12 +394,12 @@ Because commands go through `sh -c`, shell features like `~`, `&&`, pipes, and q
 
 ```toml
 setup_commands = [
-    # Install dependencies in the new worktree
-    "npm install",
-    # Record which branch and commit this worktree was created from
+    # Write metadata about the worktree to a local file
     'printf "branch=%s\npath=%s\n" "{{.Branch}}" "{{.Path}}" > .worktree-info',
-    # Launch your editor in the new worktree (replace $EDITOR as needed)
-    '$EDITOR "{{.Path}}" &',
+    # Create a per-worktree build directory (quote {{.Path}} in case it has spaces)
+    'mkdir -p "{{.Path}}/build"',
+    # Append a line to a history file so you can audit created worktrees
+    'echo "{{.Branch}} -> {{.Path}}" >> ~/.gwq-history',
 ]
 ```
 
