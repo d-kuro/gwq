@@ -52,7 +52,7 @@ func (m *Manager) Add(branch string, customPath string, createBranch bool) (stri
 		return "", err
 	}
 
-	m.runPostWorktreeSetup(path)
+	m.runPostWorktreeSetup(branch, path)
 	return path, nil
 }
 
@@ -68,7 +68,7 @@ func (m *Manager) AddFromBase(branch string, baseBranch string, customPath strin
 		return "", err
 	}
 
-	m.runPostWorktreeSetup(path)
+	m.runPostWorktreeSetup(branch, path)
 	return path, nil
 }
 

@@ -370,9 +370,40 @@ Configure automatic file copying and setup commands per repository. These settin
 [[repository_settings]]
 repository = "~/src/myproject"
 copy_files = ["templates/.env.example", "config/*.json"]
-setup_commands = ["npm install", "npm run setup"]
+setup_commands = [
+    "npm install",
+    'echo "worktree at {{.Path}}" > .gwq-setup.log',
+]
 basedir = "./worktrees"
 ```
+
+#### Template variables in `setup_commands`
+
+Each string in `setup_commands` is rendered with Go `text/template` and then executed via POSIX `sh -c`. Available variables:
+
+| Variable          | Example                                          |
+| ----------------- | ------------------------------------------------ |
+| `{{.Host}}`       | `github.com` (empty if no remote)                |
+| `{{.Owner}}`      | `d-kuro` (empty if no remote)                    |
+| `{{.Repository}}` | `gwq` (empty if no remote)                       |
+| `{{.Branch}}`     | `feature/new-ui` (raw, not filesystem-sanitized) |
+| `{{.Hash}}`       | `a1b2c3d4` (empty if no remote)                  |
+| `{{.Path}}`       | absolute worktree path                           |
+
+Because commands go through `sh -c`, shell features like `~`, `&&`, pipes, and quoting work. Template variables are substituted textually, so **quote them when the value may contain spaces or shell metacharacters**:
+
+```toml
+setup_commands = [
+    'zellij action new-tab --name "{{.Branch}}" -- nvim .',
+    'ln -s "{{.Path}}/.memory" ~/memories/latest',
+]
+```
+
+This matters most for `{{.Path}}` — worktree paths can contain spaces.
+
+Setup commands are a code-execution vector; local `.gwq.toml` files must be trusted before they run (see the trust prompt documentation).
+
+Unknown keys (e.g. `{{.Foo}}`) cause that command to be skipped with an error logged to stderr — they are not silently rendered as empty. Commands containing literal `{{` or `}}` must escape them using Go template syntax (`{{"{{"}}`), otherwise the template will fail to parse.
 
 #### Merge Behavior
 

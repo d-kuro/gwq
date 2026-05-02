@@ -15,6 +15,8 @@ type mockGit struct {
 	worktrees         []models.Worktree
 	repoName          string
 	repoPath          string
+	repoURL           string
+	repoURLError      error
 	addError          error
 	removeError       error
 	listError         error
@@ -72,6 +74,12 @@ func (m *mockGit) GetRecentCommits(path string, limit int) ([]models.CommitInfo,
 }
 
 func (m *mockGit) GetRepositoryURL() (string, error) {
+	if m.repoURLError != nil {
+		return "", m.repoURLError
+	}
+	if m.repoURL != "" {
+		return m.repoURL, nil
+	}
 	return "https://github.com/test-user/test-repo.git", nil
 }
 
