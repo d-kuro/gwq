@@ -39,11 +39,43 @@ func copyFilesForPattern(fs filesystem.FileSystemInterface, srcRoot, dstRoot, pa
 			continue
 		}
 		if info.IsDir() {
+			errs = append(errs, copyDirectory(fs, srcRoot, dstRoot, srcPath)...)
 			continue
 		}
 
 		if err := copySingleFile(fs, srcRoot, dstRoot, srcPath); err != nil {
 			errs = append(errs, err)
+		}
+	}
+
+	return errs
+}
+
+// copyDirectory recursively copies a directory and its contents.
+func copyDirectory(fs filesystem.FileSystemInterface, srcRoot, dstRoot, srcDir string) []error {
+	var errs []error
+
+	entries, err := fs.ReadDir(srcDir)
+	if err != nil {
+		return []error{fmt.Errorf("read directory %q: %w", srcDir, err)}
+	}
+
+	relPath, err := filepath.Rel(srcRoot, srcDir)
+	if err == nil {
+		dstPath := filepath.Join(dstRoot, relPath)
+		if err := fs.MkdirAll(dstPath, 0755); err != nil {
+			errs = append(errs, fmt.Errorf("create directory for %q: %w", dstPath, err))
+		}
+	}
+
+	for _, entry := range entries {
+		path := filepath.Join(srcDir, entry.Name())
+		if entry.IsDir() {
+			errs = append(errs, copyDirectory(fs, srcRoot, dstRoot, path)...)
+		} else {
+			if err := copySingleFile(fs, srcRoot, dstRoot, path); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
 

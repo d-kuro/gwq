@@ -67,6 +67,19 @@ func TestCopyFilesWithGlob(t *testing.T) {
 			},
 			notExpected: []string{"templates/README.md", "src/main.go"},
 		},
+		{
+			name: "copy directory",
+			dirs: []string{"versions/1.20/run/config", "versions/1.20/run/logs"},
+			files: map[string]string{
+				"versions/1.20/run/config/settings.json": "settings",
+				"versions/1.20/run/eula.txt":             "eula",
+			},
+			patterns: []string{"versions/*/run"},
+			expected: []string{
+				"versions/1.20/run/config/settings.json",
+				"versions/1.20/run/eula.txt",
+			},
+		},
 	}
 
 	for _, tt := range tests {
