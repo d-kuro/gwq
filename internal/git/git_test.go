@@ -585,6 +585,27 @@ func TestGetMainRepositoryPath(t *testing.T) {
 	}
 }
 
+func TestGetMainRepositoryPath_FromBareRepository(t *testing.T) {
+	repo := NewTestRepository(t)
+	barePath := filepath.Join(t.TempDir(), "repository.git")
+
+	cmd := exec.Command("git", "clone", "--bare", repo.Path, barePath)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to create bare repository: %v\nOutput: %s", err, output)
+	}
+
+	got, err := New(barePath).GetMainRepositoryPath()
+	if err != nil {
+		t.Fatalf("GetMainRepositoryPath() error = %v", err)
+	}
+
+	resolvedGot, _ := filepath.EvalSymlinks(got)
+	resolvedWant, _ := filepath.EvalSymlinks(barePath)
+	if resolvedGot != resolvedWant {
+		t.Errorf("GetMainRepositoryPath() = %s, want bare root %s", resolvedGot, resolvedWant)
+	}
+}
+
 func TestListWorktrees_IsMainFromWorktree(t *testing.T) {
 	repo := NewTestRepository(t)
 	repo.CreateBranch(t, "test-is-main")
