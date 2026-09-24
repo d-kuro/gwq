@@ -291,6 +291,39 @@ func TestDiscoverGlobalWorktrees_DoesNotDescendIntoLinkedWorktree(t *testing.T) 
 	}
 }
 
+func TestDiscoverGlobalWorktrees_PreservesWalkOrder(t *testing.T) {
+	baseDir := t.TempDir()
+
+	repoDir := filepath.Join(baseDir, "repo")
+	repo := initRepoAt(t, repoDir, "https://github.com/user/repo.git")
+
+	// More worktrees than maxGitWorkers so extraction runs in several waves.
+	want := []string{repoDir}
+	for i := range maxGitWorkers + 2 {
+		branch := fmt.Sprintf("wt-%02d", i)
+		if err := repo.run("branch", branch); err != nil {
+			t.Fatalf("Failed to create branch %s: %v", branch, err)
+		}
+		path := filepath.Join(baseDir, branch)
+		repo.CreateWorktree(t, path, branch)
+		want = append(want, path)
+	}
+
+	entries, err := DiscoverGlobalWorktrees(baseDir)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if len(entries) != len(want) {
+		t.Fatalf("Expected %d entries, got %d", len(want), len(entries))
+	}
+	for i, e := range entries {
+		if e.Path != want[i] {
+			t.Errorf("entries[%d].Path = %s, want %s", i, e.Path, want[i])
+		}
+	}
+}
+
 func TestGetCurrentBranch_InvalidPath(t *testing.T) {
 	_, err := getCurrentBranch("/nonexistent/path")
 	if err == nil {
