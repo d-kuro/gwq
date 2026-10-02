@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/d-kuro/gwq/internal/filesystem"
@@ -32,6 +34,10 @@ func copyFilesForPattern(fs filesystem.FileSystemInterface, srcRoot, dstRoot, pa
 	}
 
 	for _, relPath := range matches {
+		if isGitMetadata(relPath) {
+			continue
+		}
+
 		srcPath := filepath.Join(srcRoot, relPath)
 		info, err := fs.Stat(srcPath)
 		if err != nil {
@@ -72,6 +78,16 @@ func copySingleFile(fs filesystem.FileSystemInterface, srcRoot, dstRoot, srcPath
 		}
 	}()
 
+	// Creating dstPath truncates it. When it resolves to the source file, e.g.
+	// through a symlink checked out in both worktrees, that would empty it.
+	srcInfo, err := srcFile.Stat()
+	if err != nil {
+		return fmt.Errorf("stat source file %q: %w", srcPath, err)
+	}
+	if dstInfo, err := fs.Stat(dstPath); err == nil && os.SameFile(srcInfo, dstInfo) {
+		return nil
+	}
+
 	dstFile, err := fs.Create(dstPath)
 	if err != nil {
 		return fmt.Errorf("create destination file %q: %w", dstPath, err)
@@ -87,4 +103,13 @@ func copySingleFile(fs filesystem.FileSystemInterface, srcRoot, dstRoot, srcPath
 	}
 
 	return nil
+}
+
+// isGitMetadata reports whether a slash-separated relative path has a .git
+// element. Copying it would clobber the new worktree's own .git file. The
+// comparison ignores case for case-insensitive filesystems.
+func isGitMetadata(relPath string) bool {
+	return slices.ContainsFunc(strings.Split(relPath, "/"), func(elem string) bool {
+		return strings.EqualFold(elem, ".git")
+	})
 }
