@@ -2,6 +2,7 @@ package git
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -90,21 +91,17 @@ func (g *Git) getMainRepoRoot() (string, error) {
 		commonDir = filepath.Join(g.workDir, commonDir)
 	}
 
-	// A normal worktree's common directory is its `.git` directory, so its
-	// repository root is the parent. A bare repository's common directory IS
-	// the repository root; taking its parent collapses every bare repository
-	// under the same directory and prevents per-repository gwq setup from
-	// matching.
-	bareOutput, err := g.run("rev-parse", "--is-bare-repository")
-	if err != nil {
-		return "", fmt.Errorf("failed to determine whether repository is bare: %w", err)
-	}
+	commonDir = filepath.Clean(commonDir)
 
-	var repoRoot string
-	if strings.TrimSpace(bareOutput) == "true" {
-		repoRoot = filepath.Clean(commonDir)
-	} else {
-		repoRoot = filepath.Dir(filepath.Clean(commonDir))
+	// The root is the parent of the common directory when the parent's .git
+	// entry leads to it: a normal repository, a bare repository cloned into
+	// <root>/.git, or the ".bare" layout (<root>/.git containing
+	// "gitdir: ./.bare"). Otherwise the common directory is a standalone bare
+	// repository and is the root itself; taking its parent would collapse
+	// every bare repository under the same directory.
+	repoRoot := filepath.Dir(commonDir)
+	if !gitEntryLeadsTo(repoRoot, commonDir) {
+		repoRoot = commonDir
 	}
 
 	// Resolve symlinks to ensure consistent path comparison
@@ -114,6 +111,31 @@ func (g *Git) getMainRepoRoot() (string, error) {
 	}
 
 	return repoRoot, nil
+}
+
+// gitEntryLeadsTo checks whether dir/.git is gitDir itself or a "gitdir:"
+// file pointing at it.
+func gitEntryLeadsTo(dir, gitDir string) bool {
+	entry := filepath.Join(dir, ".git")
+	if content, err := os.ReadFile(entry); err == nil {
+		target, ok := strings.CutPrefix(strings.TrimSpace(string(content)), "gitdir: ")
+		if !ok {
+			return false
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(dir, target)
+		}
+		entry = target
+	}
+	entryInfo, err := os.Stat(entry)
+	if err != nil {
+		return false
+	}
+	gitDirInfo, err := os.Stat(gitDir)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(entryInfo, gitDirInfo)
 }
 
 // getRootDir returns the repository root directory.

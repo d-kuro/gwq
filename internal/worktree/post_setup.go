@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/d-kuro/gwq/internal/command"
 	"github.com/d-kuro/gwq/internal/filesystem"
@@ -37,8 +38,14 @@ func (m *Manager) runPostWorktreeSetupWithExecutor(ctx context.Context, executor
 		return nil
 	}
 
-	for _, err := range CopyFilesWithGlob(filesystem.NewStandardFileSystem(), repoRoot, worktreePath, repoSetting.CopyFiles) {
-		fmt.Fprintf(os.Stderr, "[gwq] file copy error: %v\n", err)
+	fs := filesystem.NewStandardFileSystem()
+	if len(repoSetting.CopyFiles) > 0 && !fs.Exists(filepath.Join(repoRoot, ".git")) {
+		// A bare repository has no working tree to copy files from.
+		fmt.Fprintf(os.Stderr, "[gwq] warning: skipping copy_files: %s has no working tree\n", repoRoot)
+	} else {
+		for _, err := range CopyFilesWithGlob(fs, repoRoot, worktreePath, repoSetting.CopyFiles) {
+			fmt.Fprintf(os.Stderr, "[gwq] file copy error: %v\n", err)
+		}
 	}
 
 	data := buildSetupTemplateData(m.git, branch, worktreePath)

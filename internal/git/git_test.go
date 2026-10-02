@@ -97,6 +97,37 @@ func (r *TestRepository) CreateWorktree(t *testing.T, path, branch string) {
 	}
 }
 
+// CreateWorktreeWithNewBranch adds a linked worktree at path on a new branch
+// named after the last element of path, and returns path.
+func (r *TestRepository) CreateWorktreeWithNewBranch(t *testing.T, path string) string {
+	t.Helper()
+	if err := r.run("worktree", "add", "-b", filepath.Base(path), path); err != nil {
+		t.Fatalf("Failed to create worktree: %v", err)
+	}
+	return path
+}
+
+// newBareRepository creates a bare clone of repo at path.
+func newBareRepository(t *testing.T, repo *TestRepository, path string) *TestRepository {
+	t.Helper()
+	if err := repo.run("clone", "--bare", repo.Path, path); err != nil {
+		t.Fatalf("Failed to create bare repository: %v", err)
+	}
+	return &TestRepository{Path: path}
+}
+
+// newBareLayout creates the ".bare" layout: <root>/.bare is a bare clone of
+// repo and <root>/.git points at it. It returns <root>.
+func newBareLayout(t *testing.T, repo *TestRepository) *TestRepository {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "layout")
+	newBareRepository(t, repo, filepath.Join(root, ".bare"))
+	if err := os.WriteFile(filepath.Join(root, ".git"), []byte("gitdir: ./.bare\n"), 0644); err != nil {
+		t.Fatalf("Failed to write .git file: %v", err)
+	}
+	return &TestRepository{Path: root}
+}
+
 func (r *TestRepository) getCurrentBranch() (string, error) {
 	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
 	cmd.Dir = r.Path
@@ -519,48 +550,92 @@ func TestRunCommand(t *testing.T) {
 func TestGetMainRepositoryPath(t *testing.T) {
 	tests := []struct {
 		name  string
-		setup func(t *testing.T, repo *TestRepository) string // returns workDir
+		setup func(t *testing.T, repo *TestRepository) (workDir, want string)
 	}{
 		{
 			name: "from main repo root",
-			setup: func(t *testing.T, repo *TestRepository) string {
+			setup: func(t *testing.T, repo *TestRepository) (string, string) {
 				t.Helper()
-				return repo.Path
+				return repo.Path, repo.Path
 			},
 		},
 		{
 			name: "from main repo subdirectory",
-			setup: func(t *testing.T, repo *TestRepository) string {
+			setup: func(t *testing.T, repo *TestRepository) (string, string) {
 				t.Helper()
 				subDir := filepath.Join(repo.Path, "sub", "dir")
 				if err := os.MkdirAll(subDir, 0755); err != nil {
 					t.Fatalf("failed to create subdir: %v", err)
 				}
-				return subDir
+				return subDir, repo.Path
 			},
 		},
 		{
 			name: "from worktree root",
-			setup: func(t *testing.T, repo *TestRepository) string {
+			setup: func(t *testing.T, repo *TestRepository) (string, string) {
 				t.Helper()
-				repo.CreateBranch(t, "test-main-path")
-				wtPath := filepath.Join(t.TempDir(), "wt")
-				repo.CreateWorktree(t, wtPath, "test-main-path")
-				return wtPath
+				return repo.CreateWorktreeWithNewBranch(t, filepath.Join(t.TempDir(), "wt")), repo.Path
 			},
 		},
 		{
 			name: "from worktree subdirectory",
-			setup: func(t *testing.T, repo *TestRepository) string {
+			setup: func(t *testing.T, repo *TestRepository) (string, string) {
 				t.Helper()
-				repo.CreateBranch(t, "test-main-path-sub")
-				wtPath := filepath.Join(t.TempDir(), "wt-sub")
-				repo.CreateWorktree(t, wtPath, "test-main-path-sub")
-				subDir := filepath.Join(wtPath, "nested")
+				subDir := filepath.Join(repo.CreateWorktreeWithNewBranch(t, filepath.Join(t.TempDir(), "wt")), "nested")
 				if err := os.MkdirAll(subDir, 0755); err != nil {
 					t.Fatalf("failed to create subdir: %v", err)
 				}
-				return subDir
+				return subDir, repo.Path
+			},
+		},
+		{
+			name: "from bare repository",
+			setup: func(t *testing.T, repo *TestRepository) (string, string) {
+				t.Helper()
+				bare := newBareRepository(t, repo, filepath.Join(t.TempDir(), "repository.git"))
+				return bare.Path, bare.Path
+			},
+		},
+		{
+			name: "from linked worktree of bare repository",
+			setup: func(t *testing.T, repo *TestRepository) (string, string) {
+				t.Helper()
+				bare := newBareRepository(t, repo, filepath.Join(t.TempDir(), "repository.git"))
+				return bare.CreateWorktreeWithNewBranch(t, filepath.Join(t.TempDir(), "wt")), bare.Path
+			},
+		},
+		{
+			name: "from bare repository cloned into .git",
+			setup: func(t *testing.T, repo *TestRepository) (string, string) {
+				t.Helper()
+				root := filepath.Join(t.TempDir(), "project")
+				newBareRepository(t, repo, filepath.Join(root, ".git"))
+				return root, root
+			},
+		},
+		{
+			name: "from linked worktree of bare repository cloned into .git",
+			setup: func(t *testing.T, repo *TestRepository) (string, string) {
+				t.Helper()
+				root := filepath.Join(t.TempDir(), "project")
+				bare := newBareRepository(t, repo, filepath.Join(root, ".git"))
+				return bare.CreateWorktreeWithNewBranch(t, filepath.Join(t.TempDir(), "wt")), root
+			},
+		},
+		{
+			name: "from .bare layout root",
+			setup: func(t *testing.T, repo *TestRepository) (string, string) {
+				t.Helper()
+				layout := newBareLayout(t, repo)
+				return layout.Path, layout.Path
+			},
+		},
+		{
+			name: "from .bare layout linked worktree",
+			setup: func(t *testing.T, repo *TestRepository) (string, string) {
+				t.Helper()
+				layout := newBareLayout(t, repo)
+				return layout.CreateWorktreeWithNewBranch(t, filepath.Join(layout.Path, "wt")), layout.Path
 			},
 		},
 	}
@@ -568,70 +643,91 @@ func TestGetMainRepositoryPath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := NewTestRepository(t)
-			workDir := tt.setup(t, repo)
-			g := New(workDir)
+			workDir, want := tt.setup(t, repo)
 
-			got, err := g.GetMainRepositoryPath()
+			got, err := New(workDir).GetMainRepositoryPath()
 			if err != nil {
 				t.Fatalf("GetMainRepositoryPath() error = %v", err)
 			}
 
 			resolvedGot, _ := filepath.EvalSymlinks(got)
-			resolvedWant, _ := filepath.EvalSymlinks(repo.Path)
+			resolvedWant, _ := filepath.EvalSymlinks(want)
 			if resolvedGot != resolvedWant {
-				t.Errorf("GetMainRepositoryPath() = %s, want %s", resolvedGot, resolvedWant)
+				t.Errorf("GetMainRepositoryPath() from %s = %s, want %s", workDir, resolvedGot, resolvedWant)
 			}
 		})
 	}
 }
 
-func TestGetMainRepositoryPath_FromBareRepository(t *testing.T) {
-	repo := NewTestRepository(t)
-	barePath := filepath.Join(t.TempDir(), "repository.git")
-
-	cmd := exec.Command("git", "clone", "--bare", repo.Path, barePath)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("failed to create bare repository: %v\nOutput: %s", err, output)
+func TestListWorktrees_IsMain(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, repo *TestRepository) (workDir, wantMain string)
+	}{
+		{
+			name: "from main repo",
+			setup: func(t *testing.T, repo *TestRepository) (string, string) {
+				t.Helper()
+				repo.CreateWorktreeWithNewBranch(t, filepath.Join(t.TempDir(), "wt"))
+				return repo.Path, repo.Path
+			},
+		},
+		{
+			name: "from linked worktree",
+			setup: func(t *testing.T, repo *TestRepository) (string, string) {
+				t.Helper()
+				return repo.CreateWorktreeWithNewBranch(t, filepath.Join(t.TempDir(), "wt")), repo.Path
+			},
+		},
+		{
+			name: "from bare repository",
+			setup: func(t *testing.T, repo *TestRepository) (string, string) {
+				t.Helper()
+				bare := newBareRepository(t, repo, filepath.Join(t.TempDir(), "repository.git"))
+				bare.CreateWorktreeWithNewBranch(t, filepath.Join(t.TempDir(), "wt"))
+				return bare.Path, bare.Path
+			},
+		},
+		{
+			name: "from linked worktree of bare repository",
+			setup: func(t *testing.T, repo *TestRepository) (string, string) {
+				t.Helper()
+				bare := newBareRepository(t, repo, filepath.Join(t.TempDir(), "repository.git"))
+				return bare.CreateWorktreeWithNewBranch(t, filepath.Join(t.TempDir(), "wt")), bare.Path
+			},
+		},
+		{
+			name: "from .bare layout linked worktree",
+			setup: func(t *testing.T, repo *TestRepository) (string, string) {
+				t.Helper()
+				layout := newBareLayout(t, repo)
+				return layout.CreateWorktreeWithNewBranch(t, filepath.Join(layout.Path, "wt")), filepath.Join(layout.Path, ".bare")
+			},
+		},
 	}
 
-	got, err := New(barePath).GetMainRepositoryPath()
-	if err != nil {
-		t.Fatalf("GetMainRepositoryPath() error = %v", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := NewTestRepository(t)
+			workDir, wantMain := tt.setup(t, repo)
 
-	resolvedGot, _ := filepath.EvalSymlinks(got)
-	resolvedWant, _ := filepath.EvalSymlinks(barePath)
-	if resolvedGot != resolvedWant {
-		t.Errorf("GetMainRepositoryPath() = %s, want bare root %s", resolvedGot, resolvedWant)
-	}
-}
-
-func TestListWorktrees_IsMainFromWorktree(t *testing.T) {
-	repo := NewTestRepository(t)
-	repo.CreateBranch(t, "test-is-main")
-	wtPath := filepath.Join(t.TempDir(), "wt-is-main")
-	repo.CreateWorktree(t, wtPath, "test-is-main")
-
-	// Create Git instance from worktree path
-	g := New(wtPath)
-	worktrees, err := g.ListWorktrees()
-	if err != nil {
-		t.Fatalf("ListWorktrees() error = %v", err)
-	}
-
-	var foundMain bool
-	for _, wt := range worktrees {
-		if wt.IsMain {
-			foundMain = true
-			resolvedWtPath, _ := filepath.EvalSymlinks(wt.Path)
-			resolvedRepoPath, _ := filepath.EvalSymlinks(repo.Path)
-			if resolvedWtPath != resolvedRepoPath {
-				t.Errorf("Main worktree path = %s, want %s", resolvedWtPath, resolvedRepoPath)
+			worktrees, err := New(workDir).ListWorktrees()
+			if err != nil {
+				t.Fatalf("ListWorktrees() error = %v", err)
 			}
-		}
-	}
-	if !foundMain {
-		t.Error("expected IsMain=true worktree not found")
+
+			var mains []string
+			for _, wt := range worktrees {
+				if wt.IsMain {
+					resolved, _ := filepath.EvalSymlinks(wt.Path)
+					mains = append(mains, resolved)
+				}
+			}
+			resolvedWant, _ := filepath.EvalSymlinks(wantMain)
+			if len(mains) != 1 || mains[0] != resolvedWant {
+				t.Errorf("IsMain worktrees from %s = %v, want [%s]", workDir, mains, resolvedWant)
+			}
+		})
 	}
 }
 
