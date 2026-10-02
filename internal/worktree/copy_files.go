@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/d-kuro/gwq/internal/filesystem"
@@ -32,6 +34,11 @@ func copyFilesForPattern(fs filesystem.FileSystemInterface, srcRoot, dstRoot, pa
 	}
 
 	for _, relPath := range matches {
+		// Git metadata would clobber the new worktree's own .git file.
+		if slices.Contains(strings.Split(relPath, "/"), ".git") {
+			continue
+		}
+
 		srcPath := filepath.Join(srcRoot, relPath)
 		info, err := fs.Stat(srcPath)
 		if err != nil {
@@ -60,6 +67,18 @@ func copySingleFile(fs filesystem.FileSystemInterface, srcRoot, dstRoot, srcPath
 	dstPath := filepath.Join(dstRoot, relPath)
 	if err := fs.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
 		return fmt.Errorf("create directory for %q: %w", dstPath, err)
+	}
+
+	// Creating dstPath truncates it. When it resolves to the source file, e.g.
+	// through a symlink checked out in both worktrees, that would empty it.
+	if dstInfo, err := fs.Stat(dstPath); err == nil {
+		srcInfo, err := fs.Stat(srcPath)
+		if err != nil {
+			return fmt.Errorf("stat %q: %w", srcPath, err)
+		}
+		if os.SameFile(srcInfo, dstInfo) {
+			return nil
+		}
 	}
 
 	srcFile, err := fs.Open(srcPath)
