@@ -85,8 +85,15 @@ func DiscoverGlobalWorktrees(baseDir string) ([]*GlobalWorktreeEntry, error) {
 
 		// Skip submodules — their gitdir points to .git/modules/...
 		gitDir := strings.TrimPrefix(gitContentStr, "gitdir: ")
-		if !isSubmoduleGitDir(gitDir) {
-			candidates = append(candidates, worktreeCandidate{path: path})
+		if isSubmoduleGitDir(gitDir) {
+			return filepath.SkipDir
+		}
+		candidates = append(candidates, worktreeCandidate{path: path})
+
+		// A pointer to a bare repository (the ".bare" layout's "gitdir: ./.bare")
+		// is not a checkout; its linked worktrees may live below it.
+		if !isLinkedWorktreeGitDir(path, gitDir) {
+			return nil
 		}
 		return filepath.SkipDir
 	})
@@ -216,6 +223,17 @@ func getCurrentCommitHash(worktreePath string) (string, error) {
 func isSubmoduleGitDir(gitDir string) bool {
 	normalized := filepath.ToSlash(gitDir)
 	return strings.Contains(normalized, "/modules/")
+}
+
+// isLinkedWorktreeGitDir checks whether gitDir, read from the .git file in
+// dir, is a linked worktree's administrative directory. Git writes a
+// commondir file only there; a relative gitDir is resolved against dir.
+func isLinkedWorktreeGitDir(dir, gitDir string) bool {
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(dir, gitDir)
+	}
+	_, err := os.Stat(filepath.Join(gitDir, "commondir"))
+	return err == nil
 }
 
 // ConvertToWorktreeModels converts GlobalWorktreeEntry to models.Worktree.
