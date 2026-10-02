@@ -510,7 +510,7 @@ To get a `<basedir>/<repo>/<branch>` structure, set `naming.template = "{{.Repos
 ## Requirements
 
 - Git 2.5+ (for worktree support)
-- Go 1.24+ (for building from source)
+- Go 1.27+ (for building from source)
 
 ## License
 
