@@ -3,7 +3,6 @@ package git
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -25,7 +24,6 @@ func (g *Git) ListWorktrees() ([]models.Worktree, error) {
 			path := after
 
 			var branch, commitHash string
-			isMain := false
 
 			for j := i + 1; j < len(lines) && !strings.HasPrefix(lines[j], "worktree "); j++ {
 				if after, ok := strings.CutPrefix(lines[j], "branch "); ok {
@@ -34,9 +32,6 @@ func (g *Git) ListWorktrees() ([]models.Worktree, error) {
 					branch = strings.TrimPrefix(branch, "refs/heads/")
 				} else if after, ok := strings.CutPrefix(lines[j], "HEAD "); ok {
 					commitHash = after
-				} else if lines[j] == "bare" {
-					// A bare repository is the main entry wherever gwq runs from.
-					isMain = true
 				}
 				i = j
 			}
@@ -55,26 +50,14 @@ func (g *Git) ListWorktrees() ([]models.Worktree, error) {
 				Path:       path,
 				Branch:     branch,
 				CommitHash: commitHash,
-				IsMain:     isMain,
 				CreatedAt:  createdAt,
 			})
 		}
 	}
 
+	// git lists the main worktree, or the bare repository, first.
 	if len(worktrees) > 0 {
-		mainDir, err := g.getMainRepoRoot()
-		if err == nil {
-			for i := range worktrees {
-				resolvedPath := worktrees[i].Path
-				if resolved, err := filepath.EvalSymlinks(resolvedPath); err == nil {
-					resolvedPath = resolved
-				}
-				if resolvedPath == mainDir {
-					worktrees[i].IsMain = true
-					break
-				}
-			}
-		}
+		worktrees[0].IsMain = true
 	}
 
 	return worktrees, nil

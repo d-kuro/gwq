@@ -93,19 +93,14 @@ func (g *Git) getMainRepoRoot() (string, error) {
 
 	commonDir = filepath.Clean(commonDir)
 
-	// A normal worktree's common directory is its `.git` directory, so its
-	// repository root is the parent. A bare repository's common directory IS
-	// the repository root; taking its parent collapses every bare repository
-	// under the same directory and prevents per-repository gwq setup from
-	// matching. Ask from inside the common directory: in a linked worktree,
-	// --is-bare-repository describes the worktree, not the repository.
-	bareOutput, err := New(commonDir).run("rev-parse", "--is-bare-repository")
-	if err != nil {
-		return "", fmt.Errorf("failed to determine whether repository is bare: %w", err)
-	}
-
+	// The root is the parent of the common directory when the parent's .git
+	// entry leads to it: a normal repository, a bare repository cloned into
+	// <root>/.git, or the ".bare" layout (<root>/.git containing
+	// "gitdir: ./.bare"). Otherwise the common directory is a standalone bare
+	// repository and is the root itself; taking its parent would collapse
+	// every bare repository under the same directory.
 	repoRoot := filepath.Dir(commonDir)
-	if strings.TrimSpace(bareOutput) == "true" && !isBareLayoutRoot(repoRoot, commonDir) {
+	if !gitEntryLeadsTo(repoRoot, commonDir) {
 		repoRoot = commonDir
 	}
 
@@ -118,30 +113,29 @@ func (g *Git) getMainRepoRoot() (string, error) {
 	return repoRoot, nil
 }
 
-// isBareLayoutRoot checks whether dir/.git is a "gitdir:" file pointing at
-// bareDir. In this ".bare" layout (<root>/.bare plus <root>/.git containing
-// "gitdir: ./.bare"), <root> is the repository root.
-func isBareLayoutRoot(dir, bareDir string) bool {
-	content, err := os.ReadFile(filepath.Join(dir, ".git"))
+// gitEntryLeadsTo checks whether dir/.git is gitDir itself or a "gitdir:"
+// file pointing at it.
+func gitEntryLeadsTo(dir, gitDir string) bool {
+	entry := filepath.Join(dir, ".git")
+	if content, err := os.ReadFile(entry); err == nil {
+		target, ok := strings.CutPrefix(strings.TrimSpace(string(content)), "gitdir: ")
+		if !ok {
+			return false
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(dir, target)
+		}
+		entry = target
+	}
+	entryInfo, err := os.Stat(entry)
 	if err != nil {
 		return false
 	}
-	gitDir, ok := strings.CutPrefix(strings.TrimSpace(string(content)), "gitdir: ")
-	if !ok {
-		return false
-	}
-	if !filepath.IsAbs(gitDir) {
-		gitDir = filepath.Join(dir, gitDir)
-	}
-	pointed, err := os.Stat(gitDir)
+	gitDirInfo, err := os.Stat(gitDir)
 	if err != nil {
 		return false
 	}
-	bare, err := os.Stat(bareDir)
-	if err != nil {
-		return false
-	}
-	return os.SameFile(pointed, bare)
+	return os.SameFile(entryInfo, gitDirInfo)
 }
 
 // getRootDir returns the repository root directory.
