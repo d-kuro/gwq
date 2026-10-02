@@ -228,17 +228,18 @@ func isSubmoduleGitDir(gitDir string) bool {
 }
 
 // bareGitDir resolves gitDir, read from the .git file in dir, and reports
-// whether it is a bare repository: it has its own object store but no index.
-// Linked worktree and submodule gitdirs, separate git dirs of checkouts, and
-// stale pointers all fail this check.
+// whether it is a bare repository. Linked worktree gitdirs and stale pointers
+// have no object store and are rejected without running git.
 func bareGitDir(dir, gitDir string) (string, bool) {
 	if !filepath.IsAbs(gitDir) {
 		gitDir = filepath.Join(dir, gitDir)
 	}
+	gitDir = filepath.Clean(gitDir)
 	if _, err := os.Stat(filepath.Join(gitDir, "objects")); err != nil {
 		return "", false
 	}
-	if _, err := os.Stat(filepath.Join(gitDir, "index")); err == nil {
+	output, err := git.New("").RunCommand("--git-dir="+gitDir, "rev-parse", "--is-bare-repository")
+	if err != nil || strings.TrimSpace(output) != "true" {
 		return "", false
 	}
 	return gitDir, true

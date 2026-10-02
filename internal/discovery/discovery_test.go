@@ -375,6 +375,12 @@ func TestDiscoverGlobalWorktrees_DoesNotDescendIntoOtherGitFilePointers(t *testi
 		t.Fatalf("Failed to separate git dir: %v", err)
 	}
 
+	// A freshly initialized checkout with a separate git dir has no index yet.
+	fresh := filepath.Join(baseDir, "fresh")
+	if err := repo.run("init", "--separate-git-dir", filepath.Join(t.TempDir(), "fresh.git"), fresh); err != nil {
+		t.Fatalf("Failed to init fresh checkout: %v", err)
+	}
+
 	// A worktree whose gitdir no longer exists.
 	stale := filepath.Join(baseDir, "stale")
 	if err := os.MkdirAll(stale, 0755); err != nil {
@@ -384,7 +390,7 @@ func TestDiscoverGlobalWorktrees_DoesNotDescendIntoOtherGitFilePointers(t *testi
 		t.Fatalf("Failed to write .git file: %v", err)
 	}
 
-	for _, dir := range []string{separate, stale} {
+	for _, dir := range []string{separate, fresh, stale} {
 		initRepoAt(t, filepath.Join(dir, "nested"), "https://github.com/user/nested.git")
 	}
 
@@ -628,23 +634,19 @@ func TestIsSubmoduleGitDir(t *testing.T) {
 
 func TestBareGitDir(t *testing.T) {
 	root := t.TempDir()
-	mkdirs := func(dirs ...string) {
-		t.Helper()
-		for _, dir := range dirs {
-			if err := os.MkdirAll(filepath.Join(root, dir), 0755); err != nil {
-				t.Fatalf("Failed to create %s: %v", dir, err)
-			}
-		}
+	repo := initRepoAt(t, filepath.Join(root, "repo"), "https://github.com/user/repo.git")
+	repo.CreateBranch(t, "feature")
+	if err := repo.run("checkout", "main"); err != nil {
+		t.Fatalf("Failed to checkout main: %v", err)
 	}
-	touch := func(file string) {
-		t.Helper()
-		if err := os.WriteFile(filepath.Join(root, file), nil, 0644); err != nil {
-			t.Fatalf("Failed to create %s: %v", file, err)
-		}
+	repo.CreateWorktree(t, filepath.Join(root, "feature"), "feature")
+	if err := repo.run("clone", "--bare", repo.Path, filepath.Join(root, "layout", ".bare")); err != nil {
+		t.Fatalf("Failed to clone bare repository: %v", err)
 	}
-	mkdirs("layout/.bare/objects", "repo/.git/objects", "repo/.git/worktrees/feature")
-	touch("repo/.git/index")
-	touch("repo/.git/worktrees/feature/index")
+	if err := repo.run("init", "--separate-git-dir", filepath.Join(root, "separate.git"), filepath.Join(root, "checkout")); err != nil {
+		t.Fatalf("Failed to init separate git dir: %v", err)
+	}
+	bare := filepath.Join(root, "layout", ".bare")
 
 	tests := []struct {
 		name    string
@@ -657,25 +659,30 @@ func TestBareGitDir(t *testing.T) {
 			name:    "relative bare repository pointer",
 			dir:     filepath.Join(root, "layout"),
 			gitDir:  "./.bare",
-			wantDir: filepath.Join(root, "layout", ".bare"),
+			wantDir: bare,
 			wantOK:  true,
 		},
 		{
-			name:    "absolute bare repository pointer",
+			name:    "unclean absolute bare repository pointer",
 			dir:     filepath.Join(root, "layout"),
-			gitDir:  filepath.Join(root, "layout", ".bare"),
-			wantDir: filepath.Join(root, "layout", ".bare"),
+			gitDir:  filepath.Join(root, "layout") + "/./.bare/",
+			wantDir: bare,
 			wantOK:  true,
 		},
 		{
 			name:   "linked worktree gitdir",
 			dir:    filepath.Join(root, "feature"),
-			gitDir: "../repo/.git/worktrees/feature",
+			gitDir: filepath.Join(repo.Path, ".git", "worktrees", "feature"),
 		},
 		{
-			name:   "separate git dir of a checkout",
+			name:   "fresh separate git dir of a checkout",
 			dir:    filepath.Join(root, "checkout"),
-			gitDir: filepath.Join(root, "repo", ".git"),
+			gitDir: filepath.Join(root, "separate.git"),
+		},
+		{
+			name:   "stale pointer",
+			dir:    filepath.Join(root, "stale"),
+			gitDir: "../missing",
 		},
 	}
 
