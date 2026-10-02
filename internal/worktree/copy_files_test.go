@@ -102,6 +102,19 @@ func TestCopyFilesWithGlob(t *testing.T) {
 				"versions/1.20/run/eula.txt",
 			},
 		},
+		{
+			name: "directory copy skips nested git metadata",
+			dirs: []string{"vendor/lib/.git/objects", "vendor/sub"},
+			files: map[string]string{
+				"vendor/lib/.git/config": "[core]\n",
+				"vendor/lib/a.txt":       "a",
+				"vendor/sub/.git":        "gitdir: ../../.git/modules/sub\n",
+				"vendor/sub/b.txt":       "b",
+			},
+			patterns:    []string{"vendor"},
+			expected:    []string{"vendor/lib/a.txt", "vendor/sub/b.txt"},
+			notExpected: []string{"vendor/lib/.git", "vendor/sub/.git"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -197,5 +210,141 @@ func TestCopyFilesWithGlob_SkipsSameFile(t *testing.T) {
 				t.Errorf("shared file content = %q, want %q", got, "secret")
 			}
 		})
+	}
+}
+
+// countingFS counts how often each destination file is opened for writing.
+type countingFS struct {
+	filesystem.FileSystemInterface
+	writes map[string]int
+}
+
+func (c *countingFS) Create(name string) (filesystem.File, error) {
+	c.writes[name]++
+	return c.FileSystemInterface.Create(name)
+}
+
+func (c *countingFS) OpenFile(name string, flag int, perm os.FileMode) (filesystem.File, error) {
+	if flag&os.O_CREATE != 0 {
+		c.writes[name]++
+	}
+	return c.FileSystemInterface.OpenFile(name, flag, perm)
+}
+
+func TestCopyFilesWithGlob_CopiesEachFileOnce(t *testing.T) {
+	srcDir := t.TempDir()
+	dstDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(srcDir, "config", "a", "b"), 0755); err != nil {
+		t.Fatalf("failed to create directories: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "config", "a", "b", "x.json"), []byte("{}"), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	fs := &countingFS{FileSystemInterface: filesystem.NewStandardFileSystem(), writes: map[string]int{}}
+	errs := CopyFilesWithGlob(fs, srcDir, dstDir, []string{"config/**", "config"})
+	if len(errs) != 0 {
+		t.Errorf("expected no errors, got %v", errs)
+	}
+	dst := filepath.Join(dstDir, "config", "a", "b", "x.json")
+	if fs.writes[dst] != 1 {
+		t.Errorf("%s written %d times, want 1", dst, fs.writes[dst])
+	}
+}
+
+func TestCopyFilesWithGlob_SkipsDestinationInsideSource(t *testing.T) {
+	// basedir = "./worktrees": the new worktree lives inside the copied directory.
+	srcDir := t.TempDir()
+	dstDir := filepath.Join(srcDir, "worktrees", "feature")
+	if err := os.MkdirAll(dstDir, 0755); err != nil {
+		t.Fatalf("failed to create destination: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(srcDir, "worktrees", "other"), 0755); err != nil {
+		t.Fatalf("failed to create sibling worktree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "worktrees", "other", "note.txt"), []byte("note"), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	fs := filesystem.NewStandardFileSystem()
+	errs := CopyFilesWithGlob(fs, srcDir, dstDir, []string{"worktrees"})
+	if len(errs) != 0 {
+		t.Errorf("expected no errors, got %v", errs)
+	}
+	if _, err := os.Stat(filepath.Join(dstDir, "worktrees", "other", "note.txt")); err != nil {
+		t.Errorf("expected sibling content to be copied: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dstDir, "worktrees", "feature")); err == nil {
+		t.Error("destination was copied into itself")
+	}
+}
+
+func TestCopyFilesWithGlob_DoesNotFollowSymlinkedDirectories(t *testing.T) {
+	tests := []struct {
+		name     string
+		patterns []string
+	}{
+		{name: "directory match", patterns: []string{"run"}},
+		{name: "double star match", patterns: []string{"run/**"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srcDir := t.TempDir()
+			dstDir := t.TempDir()
+			target := t.TempDir()
+			if err := os.WriteFile(filepath.Join(target, "file.txt"), []byte("target"), 0644); err != nil {
+				t.Fatalf("failed to write target: %v", err)
+			}
+			run := filepath.Join(srcDir, "run")
+			if err := os.MkdirAll(run, 0755); err != nil {
+				t.Fatalf("failed to create directory: %v", err)
+			}
+			if err := os.Symlink(target, filepath.Join(run, "dir-link")); err != nil {
+				t.Fatalf("failed to create symlink: %v", err)
+			}
+			if err := os.Symlink(filepath.Join(target, "file.txt"), filepath.Join(run, "file-link")); err != nil {
+				t.Fatalf("failed to create symlink: %v", err)
+			}
+
+			fs := filesystem.NewStandardFileSystem()
+			errs := CopyFilesWithGlob(fs, srcDir, dstDir, tt.patterns)
+			if len(errs) != 1 {
+				t.Errorf("expected one warning for dir-link, got %v", errs)
+			}
+			if _, err := os.Lstat(filepath.Join(dstDir, "run", "dir-link")); err == nil {
+				t.Error("expected dir-link to be skipped")
+			}
+			if got, _ := os.ReadFile(filepath.Join(dstDir, "run", "file-link")); string(got) != "target" {
+				t.Errorf("file-link content = %q, want %q", got, "target")
+			}
+		})
+	}
+}
+
+func TestCopyFilesWithGlob_PreservesFileMode(t *testing.T) {
+	srcDir := t.TempDir()
+	dstDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(srcDir, "bin"), 0755); err != nil {
+		t.Fatalf("failed to create directory: %v", err)
+	}
+	script := filepath.Join(srcDir, "bin", "run.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatalf("failed to write script: %v", err)
+	}
+	if err := os.Chmod(script, 0755); err != nil {
+		t.Fatalf("failed to chmod script: %v", err)
+	}
+
+	fs := filesystem.NewStandardFileSystem()
+	if errs := CopyFilesWithGlob(fs, srcDir, dstDir, []string{"bin"}); len(errs) != 0 {
+		t.Errorf("expected no errors, got %v", errs)
+	}
+	info, err := os.Stat(filepath.Join(dstDir, "bin", "run.sh"))
+	if err != nil {
+		t.Fatalf("expected run.sh to be copied: %v", err)
+	}
+	if info.Mode().Perm()&0111 == 0 {
+		t.Errorf("run.sh mode = %v, want it to stay executable", info.Mode().Perm())
 	}
 }
