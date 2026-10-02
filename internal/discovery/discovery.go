@@ -3,9 +3,12 @@ package discovery
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/d-kuro/gwq/internal/git"
 	"github.com/d-kuro/gwq/internal/url"
@@ -41,19 +44,19 @@ func DiscoverGlobalWorktrees(baseDir string) ([]*GlobalWorktreeEntry, error) {
 		return []*GlobalWorktreeEntry{}, nil
 	}
 
-	var entries []*GlobalWorktreeEntry
+	var candidates []worktreeCandidate
 
-	err = filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
+	err = filepath.WalkDir(baseDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // Skip errors and continue walking
 		}
 
-		if !info.IsDir() {
+		if !d.IsDir() {
 			return nil
 		}
 
 		// Skip .git directories themselves
-		if info.Name() == ".git" {
+		if d.Name() == ".git" {
 			return filepath.SkipDir
 		}
 
@@ -63,47 +66,76 @@ func DiscoverGlobalWorktrees(baseDir string) ([]*GlobalWorktreeEntry, error) {
 			return nil // No .git entry, continue
 		}
 
+		// Any .git entry marks a repo boundary; never walk a checkout's contents.
 		if gitInfo.IsDir() {
-			// Main worktree (.git is a directory)
-			entry, err := extractWorktreeInfo(path)
-			if err != nil {
-				return filepath.SkipDir // Skip broken repos but don't walk into them
-			}
-			entry.IsMain = true
-			entries = append(entries, entry)
-			return filepath.SkipDir // Don't descend into the repo
+			candidates = append(candidates, worktreeCandidate{path: path, isMain: true})
+			return filepath.SkipDir
 		}
 
 		// Linked worktree (.git is a file)
 		gitContent, err := os.ReadFile(gitPath)
 		if err != nil {
-			return nil
+			return filepath.SkipDir
 		}
 
 		gitContentStr := strings.TrimSpace(string(gitContent))
 		if !strings.HasPrefix(gitContentStr, "gitdir: ") {
-			return nil
+			return filepath.SkipDir
 		}
 
 		// Skip submodules — their gitdir points to .git/modules/...
 		gitDir := strings.TrimPrefix(gitContentStr, "gitdir: ")
-		if isSubmoduleGitDir(gitDir) {
-			return nil
+		if !isSubmoduleGitDir(gitDir) {
+			candidates = append(candidates, worktreeCandidate{path: path})
 		}
-
-		entry, err := extractWorktreeInfo(path)
-		if err != nil {
-			return nil
-		}
-		entries = append(entries, entry)
-		return nil
+		return filepath.SkipDir
 	})
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to walk directory: %w", err)
 	}
 
-	return entries, nil
+	return extractAll(candidates), nil
+}
+
+// maxGitWorkers bounds concurrent git subprocesses during discovery.
+const maxGitWorkers = 8
+
+type worktreeCandidate struct {
+	path   string
+	isMain bool
+}
+
+// extractAll runs extractWorktreeInfo concurrently, preserving candidate
+// order and dropping candidates whose info cannot be read.
+func extractAll(candidates []worktreeCandidate) []*GlobalWorktreeEntry {
+	results := make([]*GlobalWorktreeEntry, len(candidates))
+	sem := make(chan struct{}, min(runtime.NumCPU(), maxGitWorkers))
+	var wg sync.WaitGroup
+
+	for i, c := range candidates {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			entry, err := extractWorktreeInfo(c.path)
+			if err != nil {
+				return
+			}
+			entry.IsMain = c.isMain
+			results[i] = entry
+		}()
+	}
+	wg.Wait()
+
+	entries := make([]*GlobalWorktreeEntry, 0, len(results))
+	for _, e := range results {
+		if e != nil {
+			entries = append(entries, e)
+		}
+	}
+	return entries
 }
 
 // extractWorktreeInfo extracts worktree information from a worktree directory.
