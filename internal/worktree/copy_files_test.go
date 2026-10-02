@@ -354,6 +354,61 @@ func TestCopyFilesWithGlob_FollowsLiteralSymlinkedDirectory(t *testing.T) {
 	}
 }
 
+func TestCopyFilesWithGlob_SkipsDestinationThroughSymlink(t *testing.T) {
+	srcDir := t.TempDir()
+	dstDir := filepath.Join(srcDir, "worktrees", "feature")
+	for _, dir := range []string{dstDir, filepath.Join(srcDir, "worktrees", "other")} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("failed to create %s: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "worktrees", "other", "note.txt"), []byte("note"), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+	if err := os.Symlink("worktrees", filepath.Join(srcDir, "alias")); err != nil {
+		t.Fatalf("failed to create symlink: %v", err)
+	}
+
+	fs := filesystem.NewStandardFileSystem()
+	if errs := CopyFilesWithGlob(fs, srcDir, dstDir, []string{"alias"}); len(errs) != 0 {
+		t.Errorf("expected no errors, got %v", errs)
+	}
+	if _, err := os.Stat(filepath.Join(dstDir, "alias", "other", "note.txt")); err != nil {
+		t.Errorf("expected sibling content to be copied: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dstDir, "alias", "feature")); err == nil {
+		t.Error("destination was copied into itself")
+	}
+}
+
+func TestCopyFilesWithGlob_CopiesDirectoryDifferingFromDestinationOnlyInCase(t *testing.T) {
+	srcDir := t.TempDir()
+	dstDir := filepath.Join(srcDir, "worktrees", "feature")
+	if err := os.MkdirAll(dstDir, 0755); err != nil {
+		t.Fatalf("failed to create destination: %v", err)
+	}
+	other := filepath.Join(srcDir, "WORKTREES", "FEATURE")
+	if err := os.MkdirAll(other, 0755); err != nil {
+		t.Fatalf("failed to create directory: %v", err)
+	}
+	if info, err := os.Stat(dstDir); err == nil {
+		if otherInfo, err := os.Stat(other); err == nil && os.SameFile(info, otherInfo) {
+			t.Skip("filesystem is case-insensitive")
+		}
+	}
+	if err := os.WriteFile(filepath.Join(other, "x.txt"), []byte("x"), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	fs := filesystem.NewStandardFileSystem()
+	if errs := CopyFilesWithGlob(fs, srcDir, dstDir, []string{"WORKTREES"}); len(errs) != 0 {
+		t.Errorf("expected no errors, got %v", errs)
+	}
+	if _, err := os.Stat(filepath.Join(dstDir, "WORKTREES", "FEATURE", "x.txt")); err != nil {
+		t.Errorf("expected WORKTREES/FEATURE/x.txt to be copied: %v", err)
+	}
+}
+
 func TestCopyFilesWithGlob_PreservesFileMode(t *testing.T) {
 	srcDir := t.TempDir()
 	dstDir := t.TempDir()
