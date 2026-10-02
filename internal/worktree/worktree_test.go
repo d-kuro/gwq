@@ -549,6 +549,9 @@ func TestManagerAdd_ConfigurableSetupIntegration(t *testing.T) {
 	if err := os.WriteFile(srcFile, []byte("hello"), 0644); err != nil {
 		t.Fatalf("failed to write src file: %v", err)
 	}
+	if err := os.Mkdir(filepath.Join(repoDir, ".git"), 0755); err != nil {
+		t.Fatalf("failed to create .git: %v", err)
+	}
 
 	cfg := &models.Config{
 		Worktree: models.WorktreeConfig{
@@ -591,6 +594,9 @@ func TestManagerAdd_SetupFromWorktreeContext(t *testing.T) {
 	srcFile := filepath.Join(repoDir, "copyme.txt")
 	if err := os.WriteFile(srcFile, []byte("from worktree"), 0644); err != nil {
 		t.Fatalf("failed to write src file: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(repoDir, ".git"), 0755); err != nil {
+		t.Fatalf("failed to create .git: %v", err)
 	}
 
 	cfg := &models.Config{

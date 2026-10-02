@@ -3,6 +3,8 @@ package worktree
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -156,5 +158,31 @@ func TestRunPostWorktreeSetup_NoMatchingRepoSetting(t *testing.T) {
 	}
 	if len(exec.calls) != 0 {
 		t.Errorf("expected no executor calls, got %d", len(exec.calls))
+	}
+}
+
+func TestRunPostWorktreeSetup_SkipsCopyFilesForBareRepository(t *testing.T) {
+	// A bare repository root has no .git entry and no working tree to copy from.
+	repoDir := t.TempDir()
+	worktreeDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0644); err != nil {
+		t.Fatalf("failed to write HEAD: %v", err)
+	}
+	git := &mockGit{repoPath: repoDir}
+	setting := models.RepositorySetting{
+		Repository:    repoDir,
+		CopyFiles:     []string{"*"},
+		SetupCommands: []string{"echo still-runs"},
+	}
+	m := buildManagerWithRepoSetting(git, setting)
+
+	exec := newRecordingExecutor()
+	m.runPostWorktreeSetupWithExecutor(context.Background(), exec, "br", worktreeDir)
+
+	if _, err := os.Stat(filepath.Join(worktreeDir, "HEAD")); err == nil {
+		t.Error("copy_files copied HEAD out of a bare repository")
+	}
+	if len(exec.calls) != 1 {
+		t.Errorf("expected setup commands to still run once, got %d calls", len(exec.calls))
 	}
 }

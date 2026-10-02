@@ -34,8 +34,9 @@ func (g *Git) ListWorktrees() ([]models.Worktree, error) {
 					branch = strings.TrimPrefix(branch, "refs/heads/")
 				} else if after, ok := strings.CutPrefix(lines[j], "HEAD "); ok {
 					commitHash = after
-				} else if strings.HasPrefix(lines[j], "bare") {
-					continue
+				} else if lines[j] == "bare" {
+					// A bare repository is the main entry wherever gwq runs from.
+					isMain = true
 				}
 				i = j
 			}

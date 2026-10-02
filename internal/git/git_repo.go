@@ -2,6 +2,7 @@ package git
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -90,21 +91,22 @@ func (g *Git) getMainRepoRoot() (string, error) {
 		commonDir = filepath.Join(g.workDir, commonDir)
 	}
 
+	commonDir = filepath.Clean(commonDir)
+
 	// A normal worktree's common directory is its `.git` directory, so its
 	// repository root is the parent. A bare repository's common directory IS
 	// the repository root; taking its parent collapses every bare repository
 	// under the same directory and prevents per-repository gwq setup from
-	// matching.
-	bareOutput, err := g.run("rev-parse", "--is-bare-repository")
+	// matching. Ask from inside the common directory: in a linked worktree,
+	// --is-bare-repository describes the worktree, not the repository.
+	bareOutput, err := New(commonDir).run("rev-parse", "--is-bare-repository")
 	if err != nil {
 		return "", fmt.Errorf("failed to determine whether repository is bare: %w", err)
 	}
 
-	var repoRoot string
-	if strings.TrimSpace(bareOutput) == "true" {
-		repoRoot = filepath.Clean(commonDir)
-	} else {
-		repoRoot = filepath.Dir(filepath.Clean(commonDir))
+	repoRoot := filepath.Dir(commonDir)
+	if strings.TrimSpace(bareOutput) == "true" && !isBareLayoutRoot(repoRoot, commonDir) {
+		repoRoot = commonDir
 	}
 
 	// Resolve symlinks to ensure consistent path comparison
@@ -114,6 +116,32 @@ func (g *Git) getMainRepoRoot() (string, error) {
 	}
 
 	return repoRoot, nil
+}
+
+// isBareLayoutRoot checks whether dir/.git is a "gitdir:" file pointing at
+// bareDir. In this ".bare" layout (<root>/.bare plus <root>/.git containing
+// "gitdir: ./.bare"), <root> is the repository root.
+func isBareLayoutRoot(dir, bareDir string) bool {
+	content, err := os.ReadFile(filepath.Join(dir, ".git"))
+	if err != nil {
+		return false
+	}
+	gitDir, ok := strings.CutPrefix(strings.TrimSpace(string(content)), "gitdir: ")
+	if !ok {
+		return false
+	}
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(dir, gitDir)
+	}
+	pointed, err := os.Stat(gitDir)
+	if err != nil {
+		return false
+	}
+	bare, err := os.Stat(bareDir)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(pointed, bare)
 }
 
 // getRootDir returns the repository root directory.
