@@ -346,7 +346,9 @@ func TestCopyFilesWithGlob_FollowsLiteralSymlinkedDirectory(t *testing.T) {
 			}
 
 			fs := filesystem.NewStandardFileSystem()
-			CopyFilesWithGlob(fs, srcDir, dstDir, tt.patterns)
+			if errs := CopyFilesWithGlob(fs, srcDir, dstDir, tt.patterns); len(errs) != 0 {
+				t.Errorf("expected no warnings once the link is copied, got %v", errs)
+			}
 			if got, _ := os.ReadFile(filepath.Join(dstDir, "config", "link", "file.txt")); string(got) != "target" {
 				t.Errorf("config/link/file.txt content = %q, want %q", got, "target")
 			}
@@ -355,29 +357,44 @@ func TestCopyFilesWithGlob_FollowsLiteralSymlinkedDirectory(t *testing.T) {
 }
 
 func TestCopyFilesWithGlob_SkipsDestinationThroughSymlink(t *testing.T) {
-	srcDir := t.TempDir()
-	dstDir := filepath.Join(srcDir, "worktrees", "feature")
-	for _, dir := range []string{dstDir, filepath.Join(srcDir, "worktrees", "other")} {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			t.Fatalf("failed to create %s: %v", dir, err)
-		}
-	}
-	if err := os.WriteFile(filepath.Join(srcDir, "worktrees", "other", "note.txt"), []byte("note"), 0644); err != nil {
-		t.Fatalf("failed to write file: %v", err)
-	}
-	if err := os.Symlink("worktrees", filepath.Join(srcDir, "alias")); err != nil {
-		t.Fatalf("failed to create symlink: %v", err)
+	tests := []struct {
+		name    string
+		pattern string
+	}{
+		{name: "literal symlink", pattern: "alias"},
+		{name: "double star under a symlink", pattern: "alias/**"},
+		{name: "suffix filter under a symlink", pattern: "alias/**/*.txt"},
 	}
 
-	fs := filesystem.NewStandardFileSystem()
-	if errs := CopyFilesWithGlob(fs, srcDir, dstDir, []string{"alias"}); len(errs) != 0 {
-		t.Errorf("expected no errors, got %v", errs)
-	}
-	if _, err := os.Stat(filepath.Join(dstDir, "alias", "other", "note.txt")); err != nil {
-		t.Errorf("expected sibling content to be copied: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dstDir, "alias", "feature")); err == nil {
-		t.Error("destination was copied into itself")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srcDir := t.TempDir()
+			dstDir := filepath.Join(srcDir, "worktrees", "feature")
+			for _, dir := range []string{dstDir, filepath.Join(srcDir, "worktrees", "other")} {
+				if err := os.MkdirAll(dir, 0755); err != nil {
+					t.Fatalf("failed to create %s: %v", dir, err)
+				}
+			}
+			for file, content := range map[string]string{"worktrees/other/note.txt": "note", "worktrees/feature/own.txt": "own"} {
+				if err := os.WriteFile(filepath.Join(srcDir, file), []byte(content), 0644); err != nil {
+					t.Fatalf("failed to write %s: %v", file, err)
+				}
+			}
+			if err := os.Symlink("worktrees", filepath.Join(srcDir, "alias")); err != nil {
+				t.Fatalf("failed to create symlink: %v", err)
+			}
+
+			fs := filesystem.NewStandardFileSystem()
+			if errs := CopyFilesWithGlob(fs, srcDir, dstDir, []string{tt.pattern}); len(errs) != 0 {
+				t.Errorf("expected no errors, got %v", errs)
+			}
+			if _, err := os.Stat(filepath.Join(dstDir, "alias", "other", "note.txt")); err != nil {
+				t.Errorf("expected sibling content to be copied: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(dstDir, "alias", "feature")); err == nil {
+				t.Error("destination was copied into itself")
+			}
+		})
 	}
 }
 
