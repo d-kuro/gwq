@@ -18,6 +18,28 @@ func TestCopyFilesWithGlob(t *testing.T) {
 		notExpected []string
 	}{
 		{
+			name: "skips gitdir file",
+			files: map[string]string{
+				".git":       "gitdir: ./.bare\n",
+				".gitignore": "ignore",
+				".env":       "env",
+			},
+			patterns:    []string{"*", ".GIT"},
+			expected:    []string{".gitignore", ".env"},
+			notExpected: []string{".git"},
+		},
+		{
+			name: "skips .git directory",
+			dirs: []string{".git/refs"},
+			files: map[string]string{
+				".git/config": "[core]\n",
+				".env":        "env",
+			},
+			patterns:    []string{"**/*"},
+			expected:    []string{".env"},
+			notExpected: []string{".git"},
+		},
+		{
 			name: "single file and wildcard",
 			dirs: []string{"templates", "config"},
 			files: map[string]string{
@@ -141,14 +163,16 @@ func TestCopyFilesWithGlob_SkipsSameFile(t *testing.T) {
 			if err := os.WriteFile(sharedFile, []byte("secret"), 0644); err != nil {
 				t.Fatalf("failed to write shared file: %v", err)
 			}
-			srcDir, dstDir := t.TempDir(), t.TempDir()
+			srcDir := t.TempDir()
+			dstDir := t.TempDir()
 			for _, dir := range []string{srcDir, dstDir} {
 				if err := os.Symlink(filepath.Join(shared, tt.linkTarget), filepath.Join(dir, tt.link)); err != nil {
 					t.Fatalf("failed to create symlink: %v", err)
 				}
 			}
 
-			errs := CopyFilesWithGlob(filesystem.NewStandardFileSystem(), srcDir, dstDir, []string{tt.pattern})
+			fs := filesystem.NewStandardFileSystem()
+			errs := CopyFilesWithGlob(fs, srcDir, dstDir, []string{tt.pattern})
 			if len(errs) != 0 {
 				t.Errorf("expected no errors, got %v", errs)
 			}
@@ -158,63 +182,6 @@ func TestCopyFilesWithGlob_SkipsSameFile(t *testing.T) {
 			}
 			if string(got) != "secret" {
 				t.Errorf("shared file content = %q, want %q", got, "secret")
-			}
-		})
-	}
-}
-
-func TestCopyFilesWithGlob_SkipsGitMetadata(t *testing.T) {
-	tests := []struct {
-		name     string
-		srcGit   string // "file" for a gitdir file, "dir" for a .git directory
-		patterns []string
-	}{
-		{
-			name:     "gitdir file at the source root",
-			srcGit:   "file",
-			patterns: []string{"*", ".git"},
-		},
-		{
-			name:     "git directory at the source root",
-			srcGit:   "dir",
-			patterns: []string{"**/*"},
-		},
-	}
-
-	const dstGit = "gitdir: /repo/.git/worktrees/feature\n"
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			srcDir, dstDir := t.TempDir(), t.TempDir()
-			switch tt.srcGit {
-			case "file":
-				if err := os.WriteFile(filepath.Join(srcDir, ".git"), []byte("gitdir: ./.bare\n"), 0644); err != nil {
-					t.Fatalf("failed to write .git file: %v", err)
-				}
-			case "dir":
-				if err := os.MkdirAll(filepath.Join(srcDir, ".git", "refs"), 0755); err != nil {
-					t.Fatalf("failed to create .git directory: %v", err)
-				}
-				if err := os.WriteFile(filepath.Join(srcDir, ".git", "config"), []byte("[core]\n"), 0644); err != nil {
-					t.Fatalf("failed to write .git/config: %v", err)
-				}
-			}
-			if err := os.WriteFile(filepath.Join(srcDir, ".env"), []byte("env"), 0644); err != nil {
-				t.Fatalf("failed to write .env: %v", err)
-			}
-			if err := os.WriteFile(filepath.Join(dstDir, ".git"), []byte(dstGit), 0644); err != nil {
-				t.Fatalf("failed to write destination .git file: %v", err)
-			}
-
-			errs := CopyFilesWithGlob(filesystem.NewStandardFileSystem(), srcDir, dstDir, tt.patterns)
-			if len(errs) != 0 {
-				t.Errorf("expected no errors, got %v", errs)
-			}
-			if got, _ := os.ReadFile(filepath.Join(dstDir, ".git")); string(got) != dstGit {
-				t.Errorf("destination .git = %q, want %q", got, dstGit)
-			}
-			if got, _ := os.ReadFile(filepath.Join(dstDir, ".env")); string(got) != "env" {
-				t.Errorf("destination .env = %q, want %q", got, "env")
 			}
 		})
 	}

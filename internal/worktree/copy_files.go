@@ -34,8 +34,7 @@ func copyFilesForPattern(fs filesystem.FileSystemInterface, srcRoot, dstRoot, pa
 	}
 
 	for _, relPath := range matches {
-		// Git metadata would clobber the new worktree's own .git file.
-		if slices.Contains(strings.Split(relPath, "/"), ".git") {
+		if isGitMetadata(relPath) {
 			continue
 		}
 
@@ -69,18 +68,6 @@ func copySingleFile(fs filesystem.FileSystemInterface, srcRoot, dstRoot, srcPath
 		return fmt.Errorf("create directory for %q: %w", dstPath, err)
 	}
 
-	// Creating dstPath truncates it. When it resolves to the source file, e.g.
-	// through a symlink checked out in both worktrees, that would empty it.
-	if dstInfo, err := fs.Stat(dstPath); err == nil {
-		srcInfo, err := fs.Stat(srcPath)
-		if err != nil {
-			return fmt.Errorf("stat %q: %w", srcPath, err)
-		}
-		if os.SameFile(srcInfo, dstInfo) {
-			return nil
-		}
-	}
-
 	srcFile, err := fs.Open(srcPath)
 	if err != nil {
 		return fmt.Errorf("open source file %q: %w", srcPath, err)
@@ -90,6 +77,16 @@ func copySingleFile(fs filesystem.FileSystemInterface, srcRoot, dstRoot, srcPath
 			retErr = fmt.Errorf("close source file %q: %w", srcPath, closeErr)
 		}
 	}()
+
+	// Creating dstPath truncates it. When it resolves to the source file, e.g.
+	// through a symlink checked out in both worktrees, that would empty it.
+	srcInfo, err := srcFile.Stat()
+	if err != nil {
+		return fmt.Errorf("stat source file %q: %w", srcPath, err)
+	}
+	if dstInfo, err := fs.Stat(dstPath); err == nil && os.SameFile(srcInfo, dstInfo) {
+		return nil
+	}
 
 	dstFile, err := fs.Create(dstPath)
 	if err != nil {
@@ -106,4 +103,13 @@ func copySingleFile(fs filesystem.FileSystemInterface, srcRoot, dstRoot, srcPath
 	}
 
 	return nil
+}
+
+// isGitMetadata reports whether a slash-separated relative path has a .git
+// element. Copying it would clobber the new worktree's own .git file. The
+// comparison ignores case for case-insensitive filesystems.
+func isGitMetadata(relPath string) bool {
+	return slices.ContainsFunc(strings.Split(relPath, "/"), func(elem string) bool {
+		return strings.EqualFold(elem, ".git")
+	})
 }
