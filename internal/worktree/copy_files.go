@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -13,14 +14,18 @@ import (
 )
 
 // CopyFilesWithGlob copies files from srcRoot to dstRoot, supporting glob patterns and preserving directory structure.
-// A pattern that matches a directory copies it recursively, skipping git metadata and dstRoot itself when it lies
-// within the directory. Symlinked files are copied as regular files; symlinked directories are followed only when a
-// pattern names them literally. Each file is copied at most once.
-// Errors are returned for each failed copy, but copying continues for all files.
+// A pattern that matches a directory copies it recursively. Git metadata, and dstRoot itself when it lies within
+// srcRoot, are never copied. Symlinked files are copied as regular files; symlinked directories are followed only
+// when a pattern names them literally. Each file is copied at most once.
+// The returned errors cover failed copies and skipped symlinks; copying continues for all files.
 func CopyFilesWithGlob(fs filesystem.FileSystemInterface, srcRoot, dstRoot string, patterns []string) []error {
-	c := &fileCopier{fs: fs, srcRoot: srcRoot, dstRoot: dstRoot, seen: map[string]bool{}}
-	if info, err := fs.Stat(dstRoot); err == nil {
-		c.dstInfo = info
+	c := &fileCopier{
+		fs:      fs,
+		srcRoot: srcRoot,
+		dstRoot: dstRoot,
+		dstRel:  relativeInside(srcRoot, dstRoot),
+		copied:  map[string]bool{},
+		skipped: map[string]bool{},
 	}
 	for _, pattern := range patterns {
 		c.copyPattern(pattern)
@@ -28,24 +33,24 @@ func CopyFilesWithGlob(fs filesystem.FileSystemInterface, srcRoot, dstRoot strin
 	return c.errs
 }
 
-// fileCopier holds the state of a single CopyFilesWithGlob call.
+// fileCopier holds the state of a single CopyFilesWithGlob call. Relative
+// paths are slash-separated and relative to srcRoot and dstRoot.
 type fileCopier struct {
 	fs      filesystem.FileSystemInterface
 	srcRoot string
 	dstRoot string
-	dstInfo os.FileInfo     // dstRoot, which must never be copied into itself
-	seen    map[string]bool // source paths already handled
+	dstRel  string          // dstRoot relative to srcRoot when it lies within it, e.g. basedir = "./worktrees"
+	copied  map[string]bool // relative paths already copied
+	skipped map[string]bool // relative paths of symlinks already reported as skipped
 	errs    []error
 }
 
 // copyPattern processes a single glob pattern and copies matching files and directories.
 func (c *fileCopier) copyPattern(pattern string) {
-	// relPath is relative to srcRoot. WithNoFollow keeps ** out of symlinked
-	// directories and reports wildcard matches that are symlinks as such.
+	// WithNoFollow keeps ** out of symlinked directories and reports wildcard
+	// matches that are symlinks as such.
 	err := doublestar.GlobWalk(os.DirFS(c.srcRoot), pattern, func(relPath string, d os.DirEntry) error {
-		if !isGitMetadata(relPath) {
-			c.copyEntry(filepath.Join(c.srcRoot, relPath), d)
-		}
+		c.copyEntry(relPath, d)
 		return nil
 	}, doublestar.WithNoFollow())
 	if err != nil {
@@ -53,74 +58,90 @@ func (c *fileCopier) copyPattern(pattern string) {
 	}
 }
 
-// copyEntry copies a file, or a directory recursively, unless it was already handled.
-func (c *fileCopier) copyEntry(srcPath string, d os.DirEntry) {
-	if c.seen[srcPath] {
+// copyEntry copies a file, or a directory recursively, unless it was already
+// copied or must never be copied.
+func (c *fileCopier) copyEntry(relPath string, d os.DirEntry) {
+	if c.copied[relPath] || isGitMetadata(relPath) || c.isDestination(relPath) {
 		return
 	}
-	c.seen[srcPath] = true
 
-	isDir := d.IsDir()
+	srcPath := filepath.Join(c.srcRoot, relPath)
 	if d.Type()&os.ModeSymlink != 0 {
 		info, err := c.fs.Stat(srcPath)
 		if err != nil {
-			c.errs = append(c.errs, fmt.Errorf("skip broken symlink %q: %w", srcPath, err))
+			c.skip(relPath, fmt.Errorf("skip broken symlink %q: %w", srcPath, err))
 			return
 		}
 		if info.IsDir() {
-			c.errs = append(c.errs, fmt.Errorf("skip symlinked directory %q", srcPath))
+			c.skip(relPath, fmt.Errorf("skip symlinked directory %q", srcPath))
 			return
 		}
-		isDir = false
 	}
+	c.copied[relPath] = true
 
-	if isDir {
-		c.copyDirectory(srcPath)
+	dstPath := filepath.Join(c.dstRoot, relPath)
+	if d.IsDir() {
+		c.copyDirectory(relPath, srcPath, dstPath)
 		return
 	}
-	if err := copySingleFile(c.fs, c.srcRoot, c.dstRoot, srcPath); err != nil {
+	if err := copySingleFile(c.fs, srcPath, dstPath); err != nil {
 		c.errs = append(c.errs, err)
 	}
 }
 
 // copyDirectory recursively copies a directory and its contents.
-func (c *fileCopier) copyDirectory(srcDir string) {
-	if info, err := c.fs.Stat(srcDir); err == nil && c.dstInfo != nil && os.SameFile(info, c.dstInfo) {
-		return
-	}
-
-	entries, err := c.fs.ReadDir(srcDir)
+func (c *fileCopier) copyDirectory(relPath, srcPath, dstPath string) {
+	entries, err := c.fs.ReadDir(srcPath)
 	if err != nil {
-		c.errs = append(c.errs, fmt.Errorf("read directory %q: %w", srcDir, err))
+		c.errs = append(c.errs, fmt.Errorf("read directory %q: %w", srcPath, err))
 		return
 	}
-
-	relPath, err := filepath.Rel(c.srcRoot, srcDir)
-	if err != nil {
-		c.errs = append(c.errs, fmt.Errorf("compute relative path for %q: %w", srcDir, err))
-		return
-	}
-	dstPath := filepath.Join(c.dstRoot, relPath)
 	if err := c.fs.MkdirAll(dstPath, 0755); err != nil {
 		c.errs = append(c.errs, fmt.Errorf("create directory for %q: %w", dstPath, err))
 		return
 	}
-
 	for _, entry := range entries {
-		if !isGitMetadata(entry.Name()) {
-			c.copyEntry(filepath.Join(srcDir, entry.Name()), entry)
-		}
+		c.copyEntry(path.Join(relPath, entry.Name()), entry)
 	}
 }
 
-// copySingleFile copies a single file from srcPath to the corresponding path under dstRoot.
-func copySingleFile(fs filesystem.FileSystemInterface, srcRoot, dstRoot, srcPath string) (retErr error) {
-	relPath, err := filepath.Rel(srcRoot, srcPath)
-	if err != nil {
-		return fmt.Errorf("compute relative path for %q: %w", srcPath, err)
+// skip reports a skipped symlink once, even when several patterns reach it.
+// It is not marked as copied, so a pattern naming it literally still follows it.
+func (c *fileCopier) skip(relPath string, err error) {
+	if !c.skipped[relPath] {
+		c.skipped[relPath] = true
+		c.errs = append(c.errs, err)
 	}
+}
 
-	dstPath := filepath.Join(dstRoot, relPath)
+// isDestination reports whether relPath is dstRoot or lies under it. Like
+// isGitMetadata, it ignores case for case-insensitive filesystems.
+func (c *fileCopier) isDestination(relPath string) bool {
+	n := len(c.dstRel)
+	return n > 0 && len(relPath) >= n && strings.EqualFold(relPath[:n], c.dstRel) &&
+		(len(relPath) == n || relPath[n] == '/')
+}
+
+// relativeInside returns dst relative to src as a slash-separated path when
+// dst lies within src, and "" otherwise.
+func relativeInside(src, dst string) string {
+	src, err := filepath.EvalSymlinks(src)
+	if err != nil {
+		return ""
+	}
+	dst, err = filepath.EvalSymlinks(dst)
+	if err != nil {
+		return ""
+	}
+	rel, err := filepath.Rel(src, dst)
+	if err != nil || !filepath.IsLocal(rel) {
+		return ""
+	}
+	return filepath.ToSlash(rel)
+}
+
+// copySingleFile copies the file at srcPath to dstPath, creating parent directories as needed.
+func copySingleFile(fs filesystem.FileSystemInterface, srcPath, dstPath string) (retErr error) {
 	if err := fs.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
 		return fmt.Errorf("create directory for %q: %w", dstPath, err)
 	}

@@ -16,6 +16,7 @@ func TestCopyFilesWithGlob(t *testing.T) {
 		patterns    []string
 		expected    []string
 		notExpected []string
+		dst         string // destination relative to the source; empty means a separate directory
 	}{
 		{
 			name: "skips gitdir file",
@@ -115,12 +116,42 @@ func TestCopyFilesWithGlob(t *testing.T) {
 			expected:    []string{"vendor/lib/a.txt", "vendor/sub/b.txt"},
 			notExpected: []string{"vendor/lib/.git", "vendor/sub/.git"},
 		},
+		{
+			name:        "destination inside the source, directory match",
+			dirs:        []string{"worktrees/feature", "worktrees/other"},
+			files:       map[string]string{"worktrees/other/note.txt": "note", "worktrees/feature/own.txt": "own"},
+			dst:         "worktrees/feature",
+			patterns:    []string{"worktrees"},
+			expected:    []string{"worktrees/other/note.txt"},
+			notExpected: []string{"worktrees/feature"},
+		},
+		{
+			name:        "destination inside the source, double star match",
+			dirs:        []string{"worktrees/feature", "worktrees/other"},
+			files:       map[string]string{"worktrees/other/note.txt": "note", "worktrees/feature/own.txt": "own"},
+			dst:         "worktrees/feature",
+			patterns:    []string{"worktrees/**"},
+			expected:    []string{"worktrees/other/note.txt"},
+			notExpected: []string{"worktrees/feature"},
+		},
+		{
+			name:        "destination inside the source, suffix filter match",
+			dirs:        []string{"worktrees/feature", "worktrees/other"},
+			files:       map[string]string{"worktrees/other/note.txt": "note", "worktrees/feature/own.txt": "own"},
+			dst:         "worktrees/feature",
+			patterns:    []string{"**/*.txt"},
+			expected:    []string{"worktrees/other/note.txt"},
+			notExpected: []string{"worktrees/feature"},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srcDir := t.TempDir()
 			dstDir := t.TempDir()
+			if tt.dst != "" {
+				dstDir = filepath.Join(srcDir, tt.dst)
+			}
 
 			// Create directories
 			for _, dir := range tt.dirs {
@@ -219,11 +250,6 @@ type countingFS struct {
 	writes map[string]int
 }
 
-func (c *countingFS) Create(name string) (filesystem.File, error) {
-	c.writes[name]++
-	return c.FileSystemInterface.Create(name)
-}
-
 func (c *countingFS) OpenFile(name string, flag int, perm os.FileMode) (filesystem.File, error) {
 	if flag&os.O_CREATE != 0 {
 		c.writes[name]++
@@ -249,33 +275,6 @@ func TestCopyFilesWithGlob_CopiesEachFileOnce(t *testing.T) {
 	dst := filepath.Join(dstDir, "config", "a", "b", "x.json")
 	if fs.writes[dst] != 1 {
 		t.Errorf("%s written %d times, want 1", dst, fs.writes[dst])
-	}
-}
-
-func TestCopyFilesWithGlob_SkipsDestinationInsideSource(t *testing.T) {
-	// basedir = "./worktrees": the new worktree lives inside the copied directory.
-	srcDir := t.TempDir()
-	dstDir := filepath.Join(srcDir, "worktrees", "feature")
-	if err := os.MkdirAll(dstDir, 0755); err != nil {
-		t.Fatalf("failed to create destination: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(srcDir, "worktrees", "other"), 0755); err != nil {
-		t.Fatalf("failed to create sibling worktree: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(srcDir, "worktrees", "other", "note.txt"), []byte("note"), 0644); err != nil {
-		t.Fatalf("failed to write file: %v", err)
-	}
-
-	fs := filesystem.NewStandardFileSystem()
-	errs := CopyFilesWithGlob(fs, srcDir, dstDir, []string{"worktrees"})
-	if len(errs) != 0 {
-		t.Errorf("expected no errors, got %v", errs)
-	}
-	if _, err := os.Stat(filepath.Join(dstDir, "worktrees", "other", "note.txt")); err != nil {
-		t.Errorf("expected sibling content to be copied: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dstDir, "worktrees", "feature")); err == nil {
-		t.Error("destination was copied into itself")
 	}
 }
 
@@ -322,6 +321,39 @@ func TestCopyFilesWithGlob_DoesNotFollowSymlinkedDirectories(t *testing.T) {
 	}
 }
 
+func TestCopyFilesWithGlob_FollowsLiteralSymlinkedDirectory(t *testing.T) {
+	tests := []struct {
+		name     string
+		patterns []string
+	}{
+		{name: "after a directory match", patterns: []string{"config", "config/link"}},
+		{name: "before a directory match", patterns: []string{"config/link", "config"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srcDir := t.TempDir()
+			dstDir := t.TempDir()
+			target := t.TempDir()
+			if err := os.WriteFile(filepath.Join(target, "file.txt"), []byte("target"), 0644); err != nil {
+				t.Fatalf("failed to write target: %v", err)
+			}
+			if err := os.MkdirAll(filepath.Join(srcDir, "config"), 0755); err != nil {
+				t.Fatalf("failed to create directory: %v", err)
+			}
+			if err := os.Symlink(target, filepath.Join(srcDir, "config", "link")); err != nil {
+				t.Fatalf("failed to create symlink: %v", err)
+			}
+
+			fs := filesystem.NewStandardFileSystem()
+			CopyFilesWithGlob(fs, srcDir, dstDir, tt.patterns)
+			if got, _ := os.ReadFile(filepath.Join(dstDir, "config", "link", "file.txt")); string(got) != "target" {
+				t.Errorf("config/link/file.txt content = %q, want %q", got, "target")
+			}
+		})
+	}
+}
+
 func TestCopyFilesWithGlob_PreservesFileMode(t *testing.T) {
 	srcDir := t.TempDir()
 	dstDir := t.TempDir()
@@ -331,9 +363,6 @@ func TestCopyFilesWithGlob_PreservesFileMode(t *testing.T) {
 	script := filepath.Join(srcDir, "bin", "run.sh")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\n"), 0755); err != nil {
 		t.Fatalf("failed to write script: %v", err)
-	}
-	if err := os.Chmod(script, 0755); err != nil {
-		t.Fatalf("failed to chmod script: %v", err)
 	}
 
 	fs := filesystem.NewStandardFileSystem()

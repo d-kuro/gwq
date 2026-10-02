@@ -22,7 +22,6 @@ type FileSystemInterface interface {
 	ReadFile(filename string) ([]byte, error)
 
 	// File handle operations
-	Create(name string) (File, error)
 	Open(name string) (File, error)
 	OpenFile(name string, flag int, perm os.FileMode) (File, error)
 
@@ -95,11 +94,6 @@ func (fs *StandardFileSystem) WriteFile(filename string, data []byte, perm os.Fi
 // ReadFile reads file contents
 func (fs *StandardFileSystem) ReadFile(filename string) ([]byte, error) {
 	return os.ReadFile(filename)
-}
-
-// Create creates a new file
-func (fs *StandardFileSystem) Create(name string) (File, error) {
-	return os.Create(name)
 }
 
 // Open opens a file for reading

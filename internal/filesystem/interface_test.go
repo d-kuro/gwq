@@ -240,10 +240,10 @@ func TestStandardFileSystem_FileOperations(t *testing.T) {
 
 	testFile := filepath.Join(tmpDir, "test.txt")
 
-	// Test Create
-	file, err := fs.Create(testFile)
+	// Test OpenFile with O_CREATE
+	file, err := fs.OpenFile(testFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
-		t.Fatalf("Create() error = %v", err)
+		t.Fatalf("OpenFile() error = %v", err)
 	}
 
 	// Test writing to file
@@ -511,10 +511,6 @@ func (m *MockFileSystem) ReadFile(filename string) ([]byte, error) {
 		return data, nil
 	}
 	return nil, os.ErrNotExist
-}
-
-func (m *MockFileSystem) Create(name string) (File, error) {
-	return &mockFile{name: name}, nil
 }
 
 func (m *MockFileSystem) Open(name string) (File, error) {

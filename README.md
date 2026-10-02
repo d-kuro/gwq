@@ -379,7 +379,7 @@ basedir = "./worktrees"
 
 #### `copy_files`
 
-Each entry is a glob (with `**` support) relative to the main repository root, and matches are copied to the same relative path in the new worktree. A match that is a directory is copied recursively, and file permissions are kept. `.git` entries are never copied. Symlinked files are copied as regular files, while symlinked directories are skipped with a warning unless an entry names them literally. Each file is copied at most once, even when several patterns match it.
+Each entry is a glob (with `**` support) relative to the main repository root, and matches are copied to the same relative path in the new worktree. A match that is a directory is copied recursively. New files get the source file's permissions, subject to the umask. `.git` entries are never copied. Symlinked files are copied as regular files, while symlinked directories are skipped with a warning unless an entry names them literally. Each file is copied at most once, even when several patterns match it.
 
 #### Template variables in `setup_commands`
 
