@@ -45,6 +45,8 @@ func DiscoverGlobalWorktrees(baseDir string) ([]*GlobalWorktreeEntry, error) {
 	}
 
 	var candidates []worktreeCandidate
+	// Bare repositories behind ".bare"-layout pointers; walking them finds nothing.
+	bareDirs := map[string]bool{}
 
 	err = filepath.WalkDir(baseDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -55,8 +57,8 @@ func DiscoverGlobalWorktrees(baseDir string) ([]*GlobalWorktreeEntry, error) {
 			return nil
 		}
 
-		// Skip .git directories themselves
-		if d.Name() == ".git" {
+		// Skip .git directories themselves and known bare repositories
+		if d.Name() == ".git" || bareDirs[path] {
 			return filepath.SkipDir
 		}
 
@@ -66,13 +68,13 @@ func DiscoverGlobalWorktrees(baseDir string) ([]*GlobalWorktreeEntry, error) {
 			return nil // No .git entry, continue
 		}
 
-		// Any .git entry marks a repo boundary; never walk a checkout's contents.
+		// A .git directory marks a repo boundary; never walk a checkout's contents.
 		if gitInfo.IsDir() {
 			candidates = append(candidates, worktreeCandidate{path: path, isMain: true})
 			return filepath.SkipDir
 		}
 
-		// Linked worktree (.git is a file)
+		// .git is a file: a linked worktree, a submodule, or a pointer to a bare repository
 		gitContent, err := os.ReadFile(gitPath)
 		if err != nil {
 			return filepath.SkipDir
@@ -85,14 +87,14 @@ func DiscoverGlobalWorktrees(baseDir string) ([]*GlobalWorktreeEntry, error) {
 
 		// Skip submodules — their gitdir points to .git/modules/...
 		gitDir := strings.TrimPrefix(gitContentStr, "gitdir: ")
-		if isSubmoduleGitDir(gitDir) {
-			return filepath.SkipDir
+		if !isSubmoduleGitDir(gitDir) {
+			candidates = append(candidates, worktreeCandidate{path: path})
 		}
-		candidates = append(candidates, worktreeCandidate{path: path})
 
-		// A pointer to a bare repository (the ".bare" layout's "gitdir: ./.bare")
-		// is not a checkout; its linked worktrees may live below it.
-		if !isLinkedWorktreeGitDir(path, gitDir) {
+		// The ".bare" layout points <root>/.git at a bare repository and keeps
+		// its linked worktrees below <root>: walk <root>, skip the repository.
+		if bareDir, ok := bareGitDir(path, gitDir); ok {
+			bareDirs[bareDir] = true
 			return nil
 		}
 		return filepath.SkipDir
@@ -225,15 +227,21 @@ func isSubmoduleGitDir(gitDir string) bool {
 	return strings.Contains(normalized, "/modules/")
 }
 
-// isLinkedWorktreeGitDir checks whether gitDir, read from the .git file in
-// dir, is a linked worktree's administrative directory. Git writes a
-// commondir file only there; a relative gitDir is resolved against dir.
-func isLinkedWorktreeGitDir(dir, gitDir string) bool {
+// bareGitDir resolves gitDir, read from the .git file in dir, and reports
+// whether it is a bare repository: it has its own object store but no index.
+// Linked worktree and submodule gitdirs, separate git dirs of checkouts, and
+// stale pointers all fail this check.
+func bareGitDir(dir, gitDir string) (string, bool) {
 	if !filepath.IsAbs(gitDir) {
 		gitDir = filepath.Join(dir, gitDir)
 	}
-	_, err := os.Stat(filepath.Join(gitDir, "commondir"))
-	return err == nil
+	if _, err := os.Stat(filepath.Join(gitDir, "objects")); err != nil {
+		return "", false
+	}
+	if _, err := os.Stat(filepath.Join(gitDir, "index")); err == nil {
+		return "", false
+	}
+	return gitDir, true
 }
 
 // ConvertToWorktreeModels converts GlobalWorktreeEntry to models.Worktree.

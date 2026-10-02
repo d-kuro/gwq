@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -342,11 +341,13 @@ func TestDiscoverGlobalWorktrees_DescendsIntoBareLayoutRoot(t *testing.T) {
 	if err := layout.run("remote", "set-url", "origin", "https://github.com/user/repo.git"); err != nil {
 		t.Fatalf("Failed to set remote URL: %v", err)
 	}
-	want := []string{filepath.Join(root, "feature-a"), filepath.Join(root, "feature-b")}
-	for _, path := range want {
-		if err := layout.run("worktree", "add", "-b", filepath.Base(path), path); err != nil {
+	want := []string{root}
+	for _, branch := range []string{"feature-a", "feature-b"} {
+		path := filepath.Join(root, branch)
+		if err := layout.run("worktree", "add", "-b", branch, path); err != nil {
 			t.Fatalf("Failed to create worktree %s: %v", path, err)
 		}
+		want = append(want, path)
 	}
 
 	entries, err := DiscoverGlobalWorktrees(baseDir)
@@ -354,13 +355,46 @@ func TestDiscoverGlobalWorktrees_DescendsIntoBareLayoutRoot(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", err)
 	}
 
-	paths := make([]string, 0, len(entries))
-	for _, e := range entries {
-		paths = append(paths, e.Path)
+	if len(entries) != len(want) {
+		t.Fatalf("Expected %d entries, got %d", len(want), len(entries))
 	}
-	for _, path := range want {
-		if !slices.Contains(paths, path) {
-			t.Errorf("worktree %s not discovered, got %v", path, paths)
+	for i, e := range entries {
+		if e.Path != want[i] {
+			t.Errorf("entries[%d].Path = %s, want %s", i, e.Path, want[i])
+		}
+	}
+}
+
+func TestDiscoverGlobalWorktrees_DoesNotDescendIntoOtherGitFilePointers(t *testing.T) {
+	baseDir := t.TempDir()
+
+	// A checkout whose .git file points at a separate git dir.
+	separate := filepath.Join(baseDir, "separate")
+	repo := initRepoAt(t, separate, "https://github.com/user/separate.git")
+	if err := repo.run("init", "--separate-git-dir", filepath.Join(t.TempDir(), "separate.git")); err != nil {
+		t.Fatalf("Failed to separate git dir: %v", err)
+	}
+
+	// A worktree whose gitdir no longer exists.
+	stale := filepath.Join(baseDir, "stale")
+	if err := os.MkdirAll(stale, 0755); err != nil {
+		t.Fatalf("Failed to create stale worktree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stale, ".git"), []byte("gitdir: /nonexistent/.git/worktrees/stale\n"), 0644); err != nil {
+		t.Fatalf("Failed to write .git file: %v", err)
+	}
+
+	for _, dir := range []string{separate, stale} {
+		initRepoAt(t, filepath.Join(dir, "nested"), "https://github.com/user/nested.git")
+	}
+
+	entries, err := DiscoverGlobalWorktrees(baseDir)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	for _, e := range entries {
+		if e.RepositoryInfo != nil && e.RepositoryInfo.Repository == "nested" {
+			t.Errorf("Unexpected nested repo entry at %s", e.Path)
 		}
 	}
 }
@@ -592,6 +626,69 @@ func TestIsSubmoduleGitDir(t *testing.T) {
 	}
 }
 
+func TestBareGitDir(t *testing.T) {
+	root := t.TempDir()
+	mkdirs := func(dirs ...string) {
+		t.Helper()
+		for _, dir := range dirs {
+			if err := os.MkdirAll(filepath.Join(root, dir), 0755); err != nil {
+				t.Fatalf("Failed to create %s: %v", dir, err)
+			}
+		}
+	}
+	touch := func(file string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, file), nil, 0644); err != nil {
+			t.Fatalf("Failed to create %s: %v", file, err)
+		}
+	}
+	mkdirs("layout/.bare/objects", "repo/.git/objects", "repo/.git/worktrees/feature")
+	touch("repo/.git/index")
+	touch("repo/.git/worktrees/feature/index")
+
+	tests := []struct {
+		name    string
+		dir     string
+		gitDir  string
+		wantDir string
+		wantOK  bool
+	}{
+		{
+			name:    "relative bare repository pointer",
+			dir:     filepath.Join(root, "layout"),
+			gitDir:  "./.bare",
+			wantDir: filepath.Join(root, "layout", ".bare"),
+			wantOK:  true,
+		},
+		{
+			name:    "absolute bare repository pointer",
+			dir:     filepath.Join(root, "layout"),
+			gitDir:  filepath.Join(root, "layout", ".bare"),
+			wantDir: filepath.Join(root, "layout", ".bare"),
+			wantOK:  true,
+		},
+		{
+			name:   "linked worktree gitdir",
+			dir:    filepath.Join(root, "feature"),
+			gitDir: "../repo/.git/worktrees/feature",
+		},
+		{
+			name:   "separate git dir of a checkout",
+			dir:    filepath.Join(root, "checkout"),
+			gitDir: filepath.Join(root, "repo", ".git"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotDir, gotOK := bareGitDir(tt.dir, tt.gitDir)
+			if gotDir != tt.wantDir || gotOK != tt.wantOK {
+				t.Errorf("bareGitDir(%q, %q) = (%q, %v), want (%q, %v)", tt.dir, tt.gitDir, gotDir, gotOK, tt.wantDir, tt.wantOK)
+			}
+		})
+	}
+}
+
 func TestDiscoverGlobalWorktrees_SkipsSubmodules(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -657,60 +754,5 @@ func BenchmarkFilterGlobalWorktrees(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		FilterGlobalWorktrees(entries, "branch-500")
-	}
-}
-
-func TestIsLinkedWorktreeGitDir(t *testing.T) {
-	root := t.TempDir()
-	linked := filepath.Join(root, "repo", ".git", "worktrees", "feature")
-	if err := os.MkdirAll(linked, 0755); err != nil {
-		t.Fatalf("Failed to create linked gitdir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(linked, "commondir"), []byte("../..\n"), 0644); err != nil {
-		t.Fatalf("Failed to write commondir: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, "layout", ".bare"), 0755); err != nil {
-		t.Fatalf("Failed to create bare dir: %v", err)
-	}
-
-	tests := []struct {
-		name     string
-		dir      string
-		gitDir   string
-		expected bool
-	}{
-		{
-			name:     "absolute linked worktree gitdir",
-			dir:      filepath.Join(root, "feature"),
-			gitDir:   linked,
-			expected: true,
-		},
-		{
-			name:     "relative linked worktree gitdir",
-			dir:      filepath.Join(root, "feature"),
-			gitDir:   "../repo/.git/worktrees/feature",
-			expected: true,
-		},
-		{
-			name:     "bare repository pointer",
-			dir:      filepath.Join(root, "layout"),
-			gitDir:   "./.bare",
-			expected: false,
-		},
-		{
-			name:     "missing gitdir",
-			dir:      filepath.Join(root, "feature"),
-			gitDir:   "../missing",
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := isLinkedWorktreeGitDir(tt.dir, tt.gitDir)
-			if result != tt.expected {
-				t.Errorf("isLinkedWorktreeGitDir(%q, %q) = %v, want %v", tt.dir, tt.gitDir, result, tt.expected)
-			}
-		})
 	}
 }
