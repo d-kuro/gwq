@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/d-kuro/gwq/internal/discovery"
@@ -156,9 +155,11 @@ func removeLocalWorktree(ctx *CommandContext, args []string) error {
 		return nil
 	}
 
+	var failed int
 	for _, wt := range toRemove {
 		if deleteBranch {
 			if err := ctx.WorktreeManager.RemoveWithBranch(wt.Path, wt.Branch, removeForce, deleteBranch, forceDeleteBranch); err != nil {
+				failed++
 				ctx.Printer.PrintError(fmt.Errorf("failed to remove %s: %v", wt.Branch, err))
 				continue
 			}
@@ -168,6 +169,7 @@ func removeLocalWorktree(ctx *CommandContext, args []string) error {
 			}
 		} else {
 			if err := ctx.WorktreeManager.Remove(wt.Path, removeForce); err != nil {
+				failed++
 				ctx.Printer.PrintError(fmt.Errorf("failed to remove %s: %v", wt.Branch, err))
 				continue
 			}
@@ -180,6 +182,9 @@ func removeLocalWorktree(ctx *CommandContext, args []string) error {
 		}
 	}
 
+	if failed > 0 {
+		return fmt.Errorf("failed to remove %d worktree(s)", failed)
+	}
 	return nil
 }
 
@@ -309,52 +314,38 @@ func removeGlobalWorktree(ctx *CommandContext, args []string) error {
 		return nil
 	}
 
-	// Remove each worktree by changing to its repository directory
+	var failed int
 	for _, entry := range toRemove {
-		// Change to the repository directory to run git commands
-		originalDir, err := os.Getwd()
+		// Run from the main repository, not the directory being removed.
+		// Windows cannot delete a directory while it is our working directory.
+		repoPath, err := git.New(entry.Path).GetMainRepositoryPath()
 		if err != nil {
-			ctx.Printer.PrintError(fmt.Errorf("failed to get current directory: %v", err))
+			failed++
+			ctx.Printer.PrintError(fmt.Errorf("failed to find repository for %s: %v", entry.Path, err))
 			continue
 		}
 
-		// Change to repository directory (need to find git repository root from URL)
-		repoPath := entry.RepositoryURL
-		if entry.RepositoryInfo != nil {
-			// Try to find repository in common locations
-			g := git.New(entry.Path)
-			if repoRootPath, err := g.GetRepositoryPath(); err == nil {
-				repoPath = repoRootPath
-			}
-		}
-
-		if err := os.Chdir(repoPath); err != nil {
-			ctx.Printer.PrintError(fmt.Errorf("failed to change to repository %s: %v", repoPath, err))
-			continue
-		}
-
-		// Create git instance for the repository
 		g := git.New(repoPath)
 		wm := worktree.New(g, ctx.Config)
 
 		if deleteBranch {
 			if err := wm.RemoveWithBranch(entry.Path, entry.Branch, removeForce, deleteBranch, forceDeleteBranch); err != nil {
+				failed++
 				repoName := "unknown"
 				if entry.RepositoryInfo != nil {
 					repoName = entry.RepositoryInfo.Repository
 				}
 				ctx.Printer.PrintError(fmt.Errorf("failed to remove %s:%s: %v", repoName, entry.Branch, err))
-				_ = os.Chdir(originalDir)
 				continue
 			}
 		} else {
 			if err := wm.Remove(entry.Path, removeForce); err != nil {
+				failed++
 				repoName := "unknown"
 				if entry.RepositoryInfo != nil {
 					repoName = entry.RepositoryInfo.Repository
 				}
 				ctx.Printer.PrintError(fmt.Errorf("failed to remove %s:%s: %v", repoName, entry.Branch, err))
-				_ = os.Chdir(originalDir)
 				continue
 			}
 		}
@@ -373,9 +364,10 @@ func removeGlobalWorktree(ctx *CommandContext, args []string) error {
 			_ = reg.Unregister(entry.Path)
 		}
 
-		// Change back to original directory
-		_ = os.Chdir(originalDir)
 	}
 
+	if failed > 0 {
+		return fmt.Errorf("failed to remove %d worktree(s)", failed)
+	}
 	return nil
 }
