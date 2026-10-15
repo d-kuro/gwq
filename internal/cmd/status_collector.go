@@ -60,7 +60,14 @@ func (c *StatusCollector) CollectAll(ctx context.Context, worktrees []*models.Wo
 	var mu sync.Mutex
 	var firstErr error
 
-	currentPath, _ := os.Getwd()
+	currentPath, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	currentPath, err = filepath.EvalSymlinks(currentPath)
+	if err != nil {
+		return nil, err
+	}
 
 	for i, wt := range worktrees {
 		wg.Add(1)
@@ -83,8 +90,12 @@ func (c *StatusCollector) CollectAll(ctx context.Context, worktrees []*models.Wo
 				return
 			}
 
-			if strings.HasPrefix(currentPath, worktree.Path) {
-				status.IsCurrent = true
+			// Resolve filesystem aliases before comparing path components. Git may
+			// report a long Windows path while Getwd uses its short-name alias.
+			resolvedPath, err := filepath.EvalSymlinks(worktree.Path)
+			if err == nil {
+				rel, err := filepath.Rel(resolvedPath, currentPath)
+				status.IsCurrent = err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 			}
 
 			statuses[idx] = status
