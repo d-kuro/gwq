@@ -30,11 +30,12 @@ type CowOptions struct {
 
 // CowStats summarizes what a copy-on-write creation did.
 type CowStats struct {
-	Candidates  int   // tracked regular files in the target tree
-	Cloned      int   // files reflinked and verified (includes LFS)
-	LFSCloned   int   // LFS files reflinked from verified content
-	Rejected    int   // clone attempted but verification failed
-	BytesShared int64 // bytes of reflinked content
+	Candidates    int      // tracked regular files in the target tree
+	Cloned        int      // files reflinked and verified (includes LFS)
+	LFSCloned     int      // LFS files reflinked from verified content
+	Rejected      int      // clone attempted but verification failed
+	RejectedPaths []string // paths whose cloned bytes did not match the expected object
+	BytesShared   int64    // bytes of reflinked content
 }
 
 // errCowUnsupported marks situations where CoW creation cannot be done safely.
@@ -89,6 +90,13 @@ func (g *Git) AddWorktreeCow(path, branch string, createBranch bool, opts CowOpt
 	// index with matching stat data are left untouched, which preserves shared extents.
 	if _, err := gitIn(abs, nil, "reset", "--hard", "-q"); err != nil {
 		return fmt.Errorf("failed to check out remaining files: %w", err)
+	}
+	for i, p := range stats.RejectedPaths {
+		if i == 5 {
+			_, _ = fmt.Fprintf(w, "[gwq] warning: ... and %d more rejected files\n", len(stats.RejectedPaths)-5)
+			break
+		}
+		_, _ = fmt.Fprintf(w, "[gwq] warning: %s: source content did not match the expected object; left to git checkout (not shared)\n", p)
 	}
 	_, _ = fmt.Fprintf(w, "[gwq] cow: %d/%d files reflinked (%d LFS), %.1f MiB shared, %d rejected\n",
 		stats.Cloned, stats.Candidates, stats.LFSCloned, float64(stats.BytesShared)/(1<<20), stats.Rejected)
@@ -275,6 +283,7 @@ func (g *Git) cowMaterialize(target string) (CowStats, error) {
 			if !ok {
 				_ = os.Remove(dst)
 				stats.Rejected++
+				stats.RejectedPaths = append(stats.RejectedPaths, j.path)
 				return
 			}
 			verified = append(verified, j)
