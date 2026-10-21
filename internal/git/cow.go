@@ -155,19 +155,24 @@ func (g *Git) cowMaterialize(target string) (CowStats, error) {
 		return stats, err
 	}
 
-	// Attribute files can change filter/EOL behaviour: require them to be identical.
+	// Attributes decide what checkout would write (filters, EOL, ident, encoding).
+	// Materialize the target's .gitattributes first so check-attr evaluates exactly
+	// the target's rules. Cloned bytes are separately verified against the target
+	// blob (plain) or OID (LFS), so the source's own attributes do not matter.
 	for p, e := range targetTree {
-		if filepath.Base(p) == ".gitattributes" {
-			if s, ok := sourceTree[p]; !ok || s.sha != e.sha {
-				return stats, cowUnsupported("%s differs between source and target", p)
-			}
+		if filepath.Base(p) != ".gitattributes" || !safeRelPath(p) {
+			continue
 		}
-	}
-	for p := range sourceTree {
-		if filepath.Base(p) == ".gitattributes" {
-			if _, ok := targetTree[p]; !ok {
-				return stats, cowUnsupported("%s exists only in the source", p)
-			}
+		blob, err := gitIn(target, nil, "cat-file", "blob", e.sha)
+		if err != nil {
+			return stats, err
+		}
+		dst := filepath.Join(target, p)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return stats, err
+		}
+		if err := os.WriteFile(dst, blob, 0o644); err != nil {
+			return stats, err
 		}
 	}
 
@@ -184,7 +189,7 @@ func (g *Git) cowMaterialize(target string) (CowStats, error) {
 		}
 		stats.Candidates++
 		s, ok := sourceTree[p]
-		if !ok || s != e || dirty.has(p) || !safeRelPath(p) {
+		if !ok || s != e || dirty.has(p) || !safeRelPath(p) || filepath.Base(p) == ".gitattributes" {
 			continue
 		}
 		if fi, err := os.Lstat(filepath.Join(source, p)); err != nil || !fi.Mode().IsRegular() ||
@@ -194,7 +199,7 @@ func (g *Git) cowMaterialize(target string) (CowStats, error) {
 		cands = append(cands, p)
 	}
 
-	attrs, err := checkAttrs(source, cands)
+	attrs, err := checkAttrs(target, cands)
 	if err != nil {
 		return stats, err
 	}
