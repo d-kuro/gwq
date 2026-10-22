@@ -18,7 +18,8 @@ func reflinkFile(src, dst string, perm os.FileMode) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	// Apply the caller's umask at creation, just like a normal Git checkout.
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
 	if err != nil {
 		return err
 	}
@@ -29,11 +30,6 @@ func reflinkFile(src, dst string, perm os.FileMode) error {
 		case unix.EOPNOTSUPP, unix.EXDEV, unix.EINVAL, unix.ENOTTY, unix.ENOSYS:
 			return errNoReflink
 		}
-		return err
-	}
-	if err := out.Chmod(perm); err != nil {
-		_ = out.Close()
-		_ = os.Remove(dst)
 		return err
 	}
 	return out.Close()

@@ -69,8 +69,9 @@ func (g *Git) AddWorktreeCow(path, branch string, createBranch bool, opts CowOpt
 	if _, err := g.run(args...); err != nil {
 		return fmt.Errorf("failed to add worktree: %w", err)
 	}
+	checkedOut := false
 	defer func() {
-		if err != nil {
+		if err != nil && !checkedOut {
 			g.rollbackCow(abs, branch, createBranch, existed)
 		}
 	}()
@@ -91,6 +92,8 @@ func (g *Git) AddWorktreeCow(path, branch string, createBranch bool, opts CowOpt
 	if _, err := gitIn(abs, nil, "reset", "--hard", "-q"); err != nil {
 		return fmt.Errorf("failed to check out remaining files: %w", err)
 	}
+	// Like git worktree add, leave a completed checkout in place if its hook fails.
+	checkedOut = true
 	for i, p := range stats.RejectedPaths {
 		if i == 5 {
 			_, _ = fmt.Fprintf(w, "[gwq] warning: ... and %d more rejected files\n", len(stats.RejectedPaths)-5)
@@ -100,6 +103,16 @@ func (g *Git) AddWorktreeCow(path, branch string, createBranch bool, opts CowOpt
 	}
 	_, _ = fmt.Fprintf(w, "[gwq] cow: %d/%d files reflinked (%d LFS), %.1f MiB shared, %d rejected\n",
 		stats.Cloned, stats.Candidates, stats.LFSCloned, float64(stats.BytesShared)/(1<<20), stats.Rejected)
+	head, err := gitIn(abs, nil, "rev-parse", "HEAD")
+	if err != nil {
+		return err
+	}
+	newOID := strings.TrimSpace(string(head))
+	hook := exec.Command("git", "hook", "run", "--ignore-missing", "post-checkout", "--", strings.Repeat("0", len(newOID)), newOID, "1")
+	hook.Dir, hook.Stdout, hook.Stderr = abs, w, w
+	if err := hook.Run(); err != nil {
+		return fmt.Errorf("post-checkout hook failed: %w", err)
+	}
 	return nil
 }
 
@@ -163,25 +176,27 @@ func (g *Git) cowMaterialize(target string) (CowStats, error) {
 		return stats, err
 	}
 
-	// Attributes decide what checkout would write (filters, EOL, ident, encoding).
-	// Materialize the target's .gitattributes first so check-attr evaluates exactly
-	// the target's rules. Cloned bytes are separately verified against the target
-	// blob (plain) or OID (LFS), so the source's own attributes do not matter.
-	for p, e := range targetTree {
-		if filepath.Base(p) != ".gitattributes" || !safeRelPath(p) {
-			continue
+	// Let Git validate the complete tree and check out attributes with normal
+	// mode and conversion semantics. Never write raw tree paths ourselves.
+	if _, err := gitIn(target, nil, "read-tree", targetCommit); err != nil {
+		return stats, err
+	}
+	var attrPaths bytes.Buffer
+	for p := range targetTree {
+		if filepath.Base(p) == ".gitattributes" {
+			attrPaths.WriteString(p)
+			attrPaths.WriteByte(0)
 		}
-		blob, err := gitIn(target, nil, "cat-file", "blob", e.sha)
-		if err != nil {
+	}
+	if attrPaths.Len() > 0 {
+		if _, err := gitIn(target, attrPaths.Bytes(), "checkout-index", "--force", "-z", "--stdin"); err != nil {
 			return stats, err
 		}
-		dst := filepath.Join(target, p)
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return stats, err
-		}
-		if err := os.WriteFile(dst, blob, 0o644); err != nil {
-			return stats, err
-		}
+	}
+	// Only verified clones belong in the index before the final reset; Git must
+	// still materialize every other entry.
+	if _, err := gitIn(target, nil, "read-tree", "--empty"); err != nil {
+		return stats, err
 	}
 
 	dirty, err := sourceUnsafePaths(source)
@@ -220,7 +235,7 @@ func (g *Git) cowMaterialize(target string) (CowStats, error) {
 	var jobs []cowJob
 	for _, p := range cands {
 		a := attrs[p]
-		if a["eol"] != "unspecified" || a["ident"] != "unspecified" || a["working-tree-encoding"] != "unspecified" {
+		if a["eol"] != "unspecified" || a["ident"] != "unspecified" || a["working-tree-encoding"] != "unspecified" || a["crlf"] != "unspecified" {
 			continue
 		}
 		switch a["filter"] {
@@ -230,6 +245,9 @@ func (g *Git) cowMaterialize(target string) (CowStats, error) {
 			}
 			jobs = append(jobs, cowJob{path: p, entry: targetTree[p], srcAbs: filepath.Join(source, p)})
 		case "lfs":
+			if store == "" {
+				continue // respect LFS checkout settings; let Git run the filter
+			}
 			blob, err := gitIn(target, nil, "cat-file", "blob", targetTree[p].sha)
 			if err != nil {
 				continue
@@ -267,9 +285,9 @@ func (g *Git) cowMaterialize(target string) (CowStats, error) {
 			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 				return
 			}
-			perm := os.FileMode(0o644)
+			perm := os.FileMode(0o666)
 			if j.entry.mode == "100755" {
-				perm = 0o755
+				perm = 0o777
 			}
 			if err := reflinkFile(j.srcAbs, dst, perm); err != nil {
 				if errors.Is(err, errNoReflink) {
@@ -302,26 +320,6 @@ func (g *Git) cowMaterialize(target string) (CowStats, error) {
 		return stats, nil
 	}
 
-	// Attributes must be present before the index is refreshed (LFS clean filter).
-	for p, e := range targetTree {
-		if filepath.Base(p) != ".gitattributes" {
-			continue
-		}
-		if !containsJob(verified, p) {
-			blob, err := gitIn(target, nil, "cat-file", "blob", e.sha)
-			if err != nil {
-				return stats, err
-			}
-			if err := os.MkdirAll(filepath.Dir(filepath.Join(target, p)), 0o755); err != nil {
-				return stats, err
-			}
-			if err := os.WriteFile(filepath.Join(target, p), blob, 0o644); err != nil {
-				return stats, err
-			}
-			verified = append(verified, cowJob{path: p, entry: e})
-		}
-	}
-
 	// Seed the index, then let Git record stat data.
 	var idx bytes.Buffer
 	for _, j := range verified {
@@ -334,15 +332,6 @@ func (g *Git) cowMaterialize(target string) (CowStats, error) {
 		return stats, err
 	}
 	return stats, nil
-}
-
-func containsJob(js []cowJob, p string) bool {
-	for _, j := range js {
-		if j.path == p {
-			return true
-		}
-	}
-	return false
 }
 
 func safeRelPath(p string) bool {
@@ -422,21 +411,42 @@ func parseLFSPointer(b []byte) (*lfsPointer, bool) {
 	return &lfsPointer{oid: oid, size: size}, true
 }
 
-// lfsStore returns the LFS object directory shared by all worktrees.
+// lfsStore returns the resolved LFS object directory, or an empty path when
+// checkout settings require Git/LFS to decide whether to hydrate each file.
 func (g *Git) lfsStore(target string) (string, error) {
-	common, err := gitIn(target, nil, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	if err != nil {
-		return "", err
-	}
-	dir := strings.TrimSpace(string(common))
-	storage := filepath.Join(dir, "lfs")
-	if v, _ := gitIn(target, nil, "config", "--get", "lfs.storage"); strings.TrimSpace(string(v)) != "" {
-		storage = strings.TrimSpace(string(v))
-		if !filepath.IsAbs(storage) {
-			storage = filepath.Join(dir, storage)
+	if v := os.Getenv("GIT_LFS_SKIP_SMUDGE"); v != "" {
+		skip, err := strconv.ParseBool(v)
+		if err != nil || skip {
+			return "", nil
 		}
 	}
-	return filepath.Join(storage, "objects"), nil
+	for _, key := range []string{"filter.lfs.process", "filter.lfs.smudge"} {
+		if v, _ := gitIn(target, nil, "config", "--get", key); strings.Contains(string(v), "--skip") {
+			return "", nil
+		}
+	}
+	// git-lfs resolves .lfsconfig (including HEAD when it is not checked out)
+	// and lfs.storage itself. Avoid duplicating its configuration precedence.
+	env, err := gitIn(target, nil, "lfs", "env")
+	if err != nil {
+		return "", nil // missing git-lfs: ordinary Git checkout owns the behavior
+	}
+	var store string
+	for _, line := range strings.Split(string(env), "\n") {
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		switch key {
+		case "LocalMediaDir":
+			store = value
+		case "FetchInclude", "FetchExclude":
+			if value != "" {
+				return "", nil
+			}
+		}
+	}
+	return store, nil
 }
 
 // pickCowSource chooses the worktree closest (in commits) to the target.
@@ -563,7 +573,7 @@ func checkAttrs(dir string, paths []string) (map[string]map[string]string, error
 	}
 	in := strings.Join(paths, "\x00") + "\x00"
 	out, err := gitIn(dir, []byte(in), "check-attr", "-z", "--stdin",
-		"filter", "text", "eol", "ident", "working-tree-encoding")
+		"filter", "text", "eol", "ident", "working-tree-encoding", "crlf")
 	if err != nil {
 		return nil, err
 	}

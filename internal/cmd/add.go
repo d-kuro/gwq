@@ -61,7 +61,7 @@ func init() {
 	addCmd.Flags().BoolVarP(&addInteractive, "interactive", "i", false, "Select branch using fuzzy finder")
 	addCmd.Flags().BoolVarP(&addForce, "force", "f", false, "Overwrite existing directory")
 	addCmd.Flags().BoolVarP(&addStay, "stay", "s", false, "Stay in worktree directory after creation")
-	addCmd.Flags().BoolVar(&addCow, "cow", false, "Create the worktree with copy-on-write reflinks (requires XFS/btrfs/APFS-style reflink support)")
+	addCmd.Flags().BoolVar(&addCow, "cow", false, "Create the worktree with copy-on-write reflinks (requires Linux and a reflink-capable filesystem such as XFS or btrfs)")
 	addCmd.Flags().BoolVar(&addCowFallback, "cow-fallback", false, "With --cow, fall back to a normal checkout (with a warning) when reflinks are not possible")
 	addCmd.Flags().StringVar(&addExpires, "expires", "", "Set expiration (e.g., 1d, 7d, 1h)")
 }
