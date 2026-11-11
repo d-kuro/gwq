@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/d-kuro/gwq/internal/git"
 	"github.com/d-kuro/gwq/internal/template"
 	"github.com/d-kuro/gwq/internal/url"
 	"github.com/d-kuro/gwq/internal/utils"
@@ -52,6 +53,29 @@ func (m *Manager) Add(branch string, customPath string, createBranch bool) (stri
 		return "", err
 	}
 
+	m.runPostWorktreeSetup(branch, path)
+	return path, nil
+}
+
+// CowAdder is implemented by git backends that can create worktrees with
+// copy-on-write reflinks.
+type CowAdder interface {
+	AddWorktreeCow(path, branch string, createBranch bool, opts git.CowOptions) error
+}
+
+// AddCow creates a new worktree using copy-on-write reflinks and returns its path.
+func (m *Manager) AddCow(branch string, customPath string, createBranch bool, opts git.CowOptions) (string, error) {
+	cg, ok := m.git.(CowAdder)
+	if !ok {
+		return "", fmt.Errorf("copy-on-write worktrees are not supported by this git backend")
+	}
+	path, err := m.preparePath(customPath, branch)
+	if err != nil {
+		return "", err
+	}
+	if err := cg.AddWorktreeCow(path, branch, createBranch, opts); err != nil {
+		return "", err
+	}
 	m.runPostWorktreeSetup(branch, path)
 	return path, nil
 }
