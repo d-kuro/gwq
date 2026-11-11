@@ -28,7 +28,7 @@ func TestReflinkRespectsUmask(t *testing.T) {
 		}
 		for _, mode := range []os.FileMode{0o666, 0o777} {
 			dst := filepath.Join(dir, mode.String())
-			if err := reflinkFile(src, dst, mode); errors.Is(err, errNoReflink) {
+			if _, err := reflinkFile(src, dst, mode); errors.Is(err, errNoReflink) {
 				t.Skip("test filesystem does not support reflinks")
 			} else if err != nil {
 				t.Fatal(err)

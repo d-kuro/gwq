@@ -1,6 +1,7 @@
 package git
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/sha1" //nolint:gosec // git object ids are SHA-1 in sha1 repositories
 	"crypto/sha256"
@@ -12,10 +13,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // CowOptions controls copy-on-write worktree creation.
@@ -24,6 +27,9 @@ type CowOptions struct {
 	// attributes, ...) fall back to Git's normal checkout with a warning.
 	// When false, such situations are errors.
 	Fallback bool
+	// Verify proves every clone by hashing it against its Git blob or LFS SHA-256
+	// instead of trusting the donor worktree's index stat data.
+	Verify bool
 	// Stderr receives the summary and warnings. Defaults to os.Stderr.
 	Stderr io.Writer
 }
@@ -31,11 +37,14 @@ type CowOptions struct {
 // CowStats summarizes what a copy-on-write creation did.
 type CowStats struct {
 	Candidates    int      // tracked regular files in the target tree
-	Cloned        int      // files reflinked and verified (includes LFS)
-	LFSCloned     int      // LFS files reflinked from verified content
-	Rejected      int      // clone attempted but verification failed
-	RejectedPaths []string // paths whose cloned bytes did not match the expected object
+	Cloned        int      // files reflinked and proven (includes LFS)
+	LFSCloned     int      // LFS files reflinked from proven hydrated content
+	Rejected      int      // clone attempted but the proof failed
+	RejectedPaths []string // paths whose clone could not be proven equal to the expected object
 	BytesShared   int64    // bytes of reflinked content
+	LeftToGit     int      // tree entries Git checked out itself
+	Hashed        int      // clones proven by hashing rather than donor index stat data
+	Proof         string   // "donor index" or "hash"
 }
 
 // errCowUnsupported marks situations where CoW creation cannot be done safely.
@@ -76,21 +85,19 @@ func (g *Git) AddWorktreeCow(path, branch string, createBranch bool, opts CowOpt
 		}
 	}()
 
-	stats, err := g.cowMaterialize(abs)
+	stats, err := g.cowMaterialize(abs, opts, w)
 	if errors.Is(err, errCowUnsupported) {
 		if !opts.Fallback {
 			return fmt.Errorf("%w (use --cow-fallback to fall back to a normal checkout)", err)
 		}
 		_, _ = fmt.Fprintf(w, "[gwq] warning: %v; falling back to normal checkout (no storage sharing)\n", err)
 		stats, err = CowStats{}, nil
+		if _, err := gitIn(abs, nil, "reset", "--hard", "-q"); err != nil {
+			return fmt.Errorf("failed to check out remaining files: %w", err)
+		}
 	}
 	if err != nil {
 		return err
-	}
-	// Let Git materialize everything that was not verified. Entries seeded into the
-	// index with matching stat data are left untouched, which preserves shared extents.
-	if _, err := gitIn(abs, nil, "reset", "--hard", "-q"); err != nil {
-		return fmt.Errorf("failed to check out remaining files: %w", err)
 	}
 	// Like git worktree add, leave a completed checkout in place if its hook fails.
 	checkedOut = true
@@ -99,10 +106,10 @@ func (g *Git) AddWorktreeCow(path, branch string, createBranch bool, opts CowOpt
 			_, _ = fmt.Fprintf(w, "[gwq] warning: ... and %d more rejected files\n", len(stats.RejectedPaths)-5)
 			break
 		}
-		_, _ = fmt.Fprintf(w, "[gwq] warning: %s: source content did not match the expected object; left to git checkout (not shared)\n", p)
+		_, _ = fmt.Fprintf(w, "[gwq] warning: %s: clone could not be proven equal to the expected object; left to git checkout (not shared)\n", p)
 	}
-	_, _ = fmt.Fprintf(w, "[gwq] cow: %d/%d files reflinked (%d LFS), %.1f MiB shared, %d rejected\n",
-		stats.Cloned, stats.Candidates, stats.LFSCloned, float64(stats.BytesShared)/(1<<20), stats.Rejected)
+	_, _ = fmt.Fprintf(w, "[gwq] cow: %d/%d files reflinked (%d LFS), %.1f MiB shared, %d rejected, %d left to git, %d proven by hashing (%s proof)\n",
+		stats.Cloned, stats.Candidates, stats.LFSCloned, float64(stats.BytesShared)/(1<<20), stats.Rejected, stats.LeftToGit, stats.Hashed, stats.Proof)
 	head, err := gitIn(abs, nil, "rev-parse", "HEAD")
 	if err != nil {
 		return err
@@ -133,10 +140,12 @@ type treeEntry struct {
 }
 
 type cowJob struct {
-	path   string
-	entry  treeEntry
-	srcAbs string // reflink source
-	lfs    *lfsPointer
+	path    string
+	entry   treeEntry
+	srcAbs  string      // reflink source
+	lfs     *lfsPointer // hydrated LFS content expected in the clone
+	donor   *indexEntry // donor index entry proving the clone; nil means proof by hashing
+	pointer []byte      // pointer-only LFS checkout: the exact bytes expected in the clone
 }
 
 type lfsPointer struct {
@@ -144,7 +153,13 @@ type lfsPointer struct {
 	size int64
 }
 
-func (g *Git) cowMaterialize(target string) (CowStats, error) {
+type clonedFile struct {
+	job  cowJob
+	stat statData
+	size int64
+}
+
+func (g *Git) cowMaterialize(target string, opts CowOptions, w io.Writer) (CowStats, error) {
 	var stats CowStats
 
 	if out, err := gitIn(target, nil, "rev-parse", "--show-object-format"); err != nil || strings.TrimSpace(string(out)) != "sha1" {
@@ -166,14 +181,30 @@ func (g *Git) cowMaterialize(target string) (CowStats, error) {
 	if err != nil {
 		return stats, err
 	}
+	paths := make([]string, 0, len(targetTree))
+	for p := range targetTree {
+		if !safeRelPath(p) {
+			return stats, fmt.Errorf("refusing unsafe path %q in the target tree", p)
+		}
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
 
 	source, err := g.pickCowSource(target, targetCommit)
 	if err != nil {
 		return stats, err
 	}
-	sourceTree, err := lsTree(source, "HEAD")
-	if err != nil {
-		return stats, err
+
+	// Without --verify a clone is proven by the donor worktree's index. If that index
+	// cannot serve as proof, every clone is proven by hashing instead.
+	var donor *donorIndex
+	stats.Proof = "hash"
+	if !opts.Verify {
+		if donor, err = donorIndexFor(source); err != nil {
+			_, _ = fmt.Fprintf(w, "[gwq] warning: %v; proving clones by hashing\n", err)
+		} else {
+			stats.Proof = "donor index"
+		}
 	}
 
 	// Let Git validate the complete tree and check out attributes with normal
@@ -182,7 +213,7 @@ func (g *Git) cowMaterialize(target string) (CowStats, error) {
 		return stats, err
 	}
 	var attrPaths bytes.Buffer
-	for p := range targetTree {
+	for _, p := range paths {
 		if filepath.Base(p) == ".gitattributes" {
 			attrPaths.WriteString(p)
 			attrPaths.WriteByte(0)
@@ -193,41 +224,81 @@ func (g *Git) cowMaterialize(target string) (CowStats, error) {
 			return stats, err
 		}
 	}
-	// Only verified clones belong in the index before the final reset; Git must
-	// still materialize every other entry.
-	if _, err := gitIn(target, nil, "read-tree", "--empty"); err != nil {
-		return stats, err
+
+	var (
+		sourceTree map[string]treeEntry
+		dirty      pathSet
+	)
+	if donor == nil {
+		if sourceTree, err = lsTree(source, "HEAD"); err != nil {
+			return stats, err
+		}
+		if dirty, err = sourceUnsafePaths(source); err != nil {
+			return stats, err
+		}
 	}
 
-	dirty, err := sourceUnsafePaths(source)
-	if err != nil {
-		return stats, err
-	}
-
-	// Candidate files: identical blob, regular file, clean in source.
+	// Candidate files: identical blob and mode as the target tree, regular file, and
+	// clean in the donor (by its index stat data, or by status when hashing).
 	var cands []string
-	for p, e := range targetTree {
+	proven := map[string]*indexEntry{} // candidates whose donor file is stat-clean
+	for _, p := range paths {
+		e := targetTree[p]
 		if e.mode != "100644" && e.mode != "100755" {
 			continue
 		}
 		stats.Candidates++
-		s, ok := sourceTree[p]
-		if !ok || s != e || dirty.has(p) || !safeRelPath(p) || filepath.Base(p) == ".gitattributes" {
+		if filepath.Base(p) == ".gitattributes" {
 			continue
 		}
-		if fi, err := os.Lstat(filepath.Join(source, p)); err != nil || !fi.Mode().IsRegular() ||
-			(fi.Mode()&0o111 != 0) != (e.mode == "100755") {
+		var de *indexEntry
+		if donor != nil {
+			mode, _ := parseMode(e.mode)
+			oid, ok := oidFromHex(e.sha)
+			if de = donor.entries[p]; !ok || de == nil || de.mode != mode || de.oid != oid {
+				continue
+			}
+		} else if s, ok := sourceTree[p]; !ok || s != e || dirty.has(p) {
+			continue
+		}
+		fi, err := os.Lstat(filepath.Join(source, p))
+		if err != nil || !fi.Mode().IsRegular() || (fi.Mode()&0o111 != 0) != (e.mode == "100755") {
 			continue
 		}
 		cands = append(cands, p)
+		if donor != nil && donor.cleanAgainst(de, fi) {
+			proven[p] = de
+		}
 	}
 
 	attrs, err := checkAttrs(target, cands)
 	if err != nil {
 		return stats, err
 	}
+	var donorAttrs map[string]map[string]string
+	if donor != nil {
+		// The donor's bytes only equal the blob if the donor itself applied no
+		// conversion; stat-clean says nothing about content that Git converted.
+		provenPaths := make([]string, 0, len(proven))
+		for p := range proven {
+			provenPaths = append(provenPaths, p)
+		}
+		if donorAttrs, err = checkAttrs(source, provenPaths); err != nil {
+			return stats, err
+		}
+	}
 
-	store, err := g.lfsStore(target)
+	policy, err := g.lfsPolicy(target)
+	if err != nil {
+		return stats, err
+	}
+	var lfsOIDs []string
+	for _, p := range cands {
+		if a := attrs[p]; plainConversion(a) && a["filter"] == "lfs" && (policy.store != "" || policy.pointerOnly) {
+			lfsOIDs = append(lfsOIDs, targetTree[p].sha)
+		}
+	}
+	blobs, err := catSmallBlobs(target, lfsOIDs, 1024)
 	if err != nil {
 		return stats, err
 	}
@@ -235,39 +306,62 @@ func (g *Git) cowMaterialize(target string) (CowStats, error) {
 	var jobs []cowJob
 	for _, p := range cands {
 		a := attrs[p]
-		if a["eol"] != "unspecified" || a["ident"] != "unspecified" || a["working-tree-encoding"] != "unspecified" || a["crlf"] != "unspecified" {
+		if !plainConversion(a) {
 			continue
 		}
+		j := cowJob{path: p, entry: targetTree[p], srcAbs: filepath.Join(source, p)}
+		de := proven[p]
 		switch a["filter"] {
 		case "unspecified":
 			if a["text"] != "unspecified" && a["text"] != "unset" {
 				continue
 			}
-			jobs = append(jobs, cowJob{path: p, entry: targetTree[p], srcAbs: filepath.Join(source, p)})
+			if donor != nil {
+				if de == nil || !plainText(donorAttrs[p]) {
+					continue // not proven: left to git
+				}
+				j.donor = de
+			}
+			jobs = append(jobs, j)
 		case "lfs":
-			if store == "" {
+			if policy.store == "" && !policy.pointerOnly {
 				continue // respect LFS checkout settings; let Git run the filter
 			}
-			blob, err := gitIn(target, nil, "cat-file", "blob", targetTree[p].sha)
-			if err != nil {
-				continue
-			}
+			blob := blobs[targetTree[p].sha]
 			ptr, ok := parseLFSPointer(blob)
 			if !ok {
 				continue
 			}
-			obj := filepath.Join(store, ptr.oid[:2], ptr.oid[2:4], ptr.oid)
+			if de != nil && donorAttrs[p]["filter"] == "lfs" && plainConversion(donorAttrs[p]) {
+				// The donor file is usable only if its size is what the target's LFS
+				// policy produces; hydrated and pointer-only checkouts differ in size.
+				switch {
+				case policy.pointerOnly && int64(de.stat.size) == int64(len(blob)):
+					j.donor, j.pointer = de, blob
+					jobs = append(jobs, j)
+					continue
+				case !policy.pointerOnly && ptr.size != int64(len(blob)) && int64(de.stat.size) == ptr.size:
+					j.donor, j.lfs = de, ptr
+					jobs = append(jobs, j)
+					continue
+				}
+			}
+			if policy.store == "" {
+				continue
+			}
+			obj := filepath.Join(policy.store, ptr.oid[:2], ptr.oid[2:4], ptr.oid)
 			if fi, err := os.Stat(obj); err != nil || !fi.Mode().IsRegular() || fi.Size() != ptr.size {
 				continue // missing or wrong-sized object: let Git/LFS handle it
 			}
-			jobs = append(jobs, cowJob{path: p, entry: targetTree[p], srcAbs: obj, lfs: ptr})
+			j.srcAbs, j.lfs = obj, ptr
+			jobs = append(jobs, j)
 		}
 	}
 
-	// Clone and verify in parallel.
+	// Clone and prove in parallel.
 	var (
 		mu          sync.Mutex
-		verified    []cowJob
+		cloned      = map[string]clonedFile{}
 		unsupported atomic.Bool
 		wg          sync.WaitGroup
 		sem         = make(chan struct{}, runtime.NumCPU())
@@ -289,13 +383,18 @@ func (g *Git) cowMaterialize(target string) (CowStats, error) {
 			if j.entry.mode == "100755" {
 				perm = 0o777
 			}
-			if err := reflinkFile(j.srcAbs, dst, perm); err != nil {
+			fi, err := reflinkFile(j.srcAbs, dst, perm)
+			if err != nil {
 				if errors.Is(err, errNoReflink) {
 					unsupported.Store(true)
 				}
 				return
 			}
-			size, ok := verifyClone(dst, j)
+			sd, ok := statDataOf(fi)
+			var size int64
+			if ok {
+				size, ok = proveClone(donor, j, dst, fi)
+			}
 			mu.Lock()
 			defer mu.Unlock()
 			if !ok {
@@ -304,34 +403,118 @@ func (g *Git) cowMaterialize(target string) (CowStats, error) {
 				stats.RejectedPaths = append(stats.RejectedPaths, j.path)
 				return
 			}
-			verified = append(verified, j)
-			stats.Cloned++
-			stats.BytesShared += size
-			if j.lfs != nil {
-				stats.LFSCloned++
-			}
+			cloned[j.path] = clonedFile{job: j, stat: sd, size: size}
 		}()
 	}
 	wg.Wait()
 	if unsupported.Load() {
 		return stats, cowUnsupported("filesystem does not support reflinks between %s and %s", source, target)
 	}
-	if len(verified) == 0 {
-		return stats, nil
-	}
+	sort.Strings(stats.RejectedPaths)
 
-	// Seed the index, then let Git record stat data.
-	var idx bytes.Buffer
-	for _, j := range verified {
-		fmt.Fprintf(&idx, "%s %s 0\t%s\x00", j.entry.mode, j.entry.sha, j.path)
+	// Write the index with the new files' own stat data, so Git trusts it without
+	// hashing anything. Entries not cloned carry zero stat data until Git checks
+	// them out below.
+	var maxMtime uint32
+	entries := make([]indexEntry, 0, len(paths))
+	var leftover bytes.Buffer
+	for _, p := range paths {
+		e := targetTree[p]
+		mode, err := parseMode(e.mode)
+		if err != nil {
+			return stats, fmt.Errorf("bad mode %q for %s", e.mode, p)
+		}
+		ie := indexEntry{path: p, mode: mode}
+		var ok bool
+		if ie.oid, ok = oidFromHex(e.sha); !ok {
+			return stats, fmt.Errorf("bad object id %q for %s", e.sha, p)
+		}
+		if c, ok := cloned[p]; ok {
+			ie.stat = c.stat
+			maxMtime = max(maxMtime, c.stat.mtimeSec)
+			stats.Cloned++
+			stats.BytesShared += c.size
+			if c.job.lfs != nil {
+				stats.LFSCloned++
+			}
+			if c.job.donor == nil {
+				stats.Hashed++
+			}
+		} else {
+			leftover.WriteString(p)
+			leftover.WriteByte(0)
+		}
+		entries = append(entries, ie)
 	}
-	if _, err := gitIn(target, idx.Bytes(), "update-index", "--add", "-z", "--index-info"); err != nil {
+	stats.LeftToGit = len(entries) - stats.Cloned
+	if stats.Cloned > 0 {
+		// A file modified in the same second as the index is written could keep its
+		// stat data; let the index be strictly newer than every clone.
+		if d := time.Until(time.Unix(int64(maxMtime)+1, 0).Add(20 * time.Millisecond)); d > 0 {
+			time.Sleep(d)
+		}
+	}
+	idxPath, err := gitIn(target, nil, "rev-parse", "--path-format=absolute", "--git-path", "index")
+	if err != nil {
 		return stats, err
 	}
-	if _, err := gitIn(target, nil, "update-index", "-q", "--really-refresh"); err != nil {
-		return stats, err
+	if err := writeIndex(strings.TrimSpace(string(idxPath)), entries); err != nil {
+		return stats, fmt.Errorf("failed to write index: %w", err)
+	}
+	if leftover.Len() > 0 {
+		if _, err := gitIn(target, leftover.Bytes(), "checkout-index", "-f", "-u", "-z", "--stdin"); err != nil {
+			return stats, fmt.Errorf("failed to check out remaining files: %w", err)
+		}
 	}
 	return stats, nil
+}
+
+// plainConversion reports whether no checkout conversion other than a filter or
+// text attribute applies.
+func plainConversion(a map[string]string) bool {
+	return a["eol"] == "unspecified" && a["ident"] == "unspecified" && a["working-tree-encoding"] == "unspecified" && a["crlf"] == "unspecified"
+}
+
+// plainText reports whether a path is checked out byte for byte.
+func plainText(a map[string]string) bool {
+	return plainConversion(a) && a["filter"] == "unspecified" && (a["text"] == "unspecified" || a["text"] == "unset")
+}
+
+// donorIndexFor loads the donor worktree's index as proof of clean files. An error
+// means the index cannot serve as proof; callers prove clones by hashing instead.
+func donorIndexFor(source string) (*donorIndex, error) {
+	if v, _ := gitIn(source, nil, "config", "--get", "core.autocrlf"); strings.TrimSpace(string(v)) != "" && strings.TrimSpace(string(v)) != "false" {
+		return nil, indexUnusable("core.autocrlf is set in the donor")
+	}
+	path, err := gitIn(source, nil, "rev-parse", "--path-format=absolute", "--git-path", "index")
+	if err != nil {
+		return nil, indexUnusable("%v", err)
+	}
+	return readDonorIndex(strings.TrimSpace(string(path)))
+}
+
+// proveClone decides whether the clone at dst equals the object the target tree
+// expects, and returns its size. fi is the stat of dst taken right after cloning.
+func proveClone(donor *donorIndex, j cowJob, dst string, fi os.FileInfo) (int64, bool) {
+	if j.donor == nil {
+		return verifyClone(dst, j)
+	}
+	// The donor file must be unchanged since before the clone started.
+	cur, err := os.Lstat(j.srcAbs)
+	if err != nil || !donor.cleanAgainst(j.donor, cur) {
+		return 0, false
+	}
+	if !fi.Mode().IsRegular() || uint32(fi.Size()) != j.donor.stat.size {
+		return 0, false
+	}
+	if j.pointer != nil {
+		// A hydrated file can share the pointer's size; compare the actual bytes.
+		got, err := os.ReadFile(dst)
+		if err != nil || !bytes.Equal(got, j.pointer) {
+			return 0, false
+		}
+	}
+	return fi.Size(), true
 }
 
 func safeRelPath(p string) bool {
@@ -411,25 +594,34 @@ func parseLFSPointer(b []byte) (*lfsPointer, bool) {
 	return &lfsPointer{oid: oid, size: size}, true
 }
 
-// lfsStore returns the resolved LFS object directory, or an empty path when
-// checkout settings require Git/LFS to decide whether to hydrate each file.
-func (g *Git) lfsStore(target string) (string, error) {
+// lfsPolicy describes how Git/LFS will check out LFS files in a worktree.
+type lfsPolicy struct {
+	store       string // hydrate from this object directory
+	pointerOnly bool   // every LFS file is checked out as its pointer
+}
+
+// lfsPolicy returns the LFS checkout policy of target. The zero value means
+// checkout settings require Git/LFS to decide for each file.
+func (g *Git) lfsPolicy(target string) (lfsPolicy, error) {
 	if v := os.Getenv("GIT_LFS_SKIP_SMUDGE"); v != "" {
 		skip, err := strconv.ParseBool(v)
 		if err != nil || skip {
-			return "", nil
+			return lfsPolicy{pointerOnly: err == nil}, nil
 		}
 	}
-	for _, key := range []string{"filter.lfs.process", "filter.lfs.smudge"} {
-		if v, _ := gitIn(target, nil, "config", "--get", key); strings.Contains(string(v), "--skip") {
-			return "", nil
-		}
+	// Git uses the process filter when it is configured, else the smudge filter.
+	process, _ := gitIn(target, nil, "config", "--get", "filter.lfs.process")
+	smudge, _ := gitIn(target, nil, "config", "--get", "filter.lfs.smudge")
+	processSkip, smudgeSkip := strings.Contains(string(process), "--skip"), strings.Contains(string(smudge), "--skip")
+	if processSkip || smudgeSkip {
+		hasProcess := strings.TrimSpace(string(process)) != ""
+		return lfsPolicy{pointerOnly: hasProcess && processSkip || !hasProcess && smudgeSkip}, nil
 	}
 	// git-lfs resolves .lfsconfig (including HEAD when it is not checked out)
 	// and lfs.storage itself. Avoid duplicating its configuration precedence.
 	env, err := gitIn(target, nil, "lfs", "env")
 	if err != nil {
-		return "", nil // missing git-lfs: ordinary Git checkout owns the behavior
+		return lfsPolicy{}, nil // missing git-lfs: ordinary Git checkout owns the behavior
 	}
 	var store string
 	for _, line := range strings.Split(string(env), "\n") {
@@ -442,11 +634,73 @@ func (g *Git) lfsStore(target string) (string, error) {
 			store = value
 		case "FetchInclude", "FetchExclude":
 			if value != "" {
-				return "", nil
+				return lfsPolicy{}, nil
 			}
 		}
 	}
-	return store, nil
+	return lfsPolicy{store: store}, nil
+}
+
+// catSmallBlobs reads blobs of at most limit bytes with one git process. Larger or
+// missing blobs are absent from the result.
+func catSmallBlobs(dir string, oids []string, limit int64) (map[string][]byte, error) {
+	res := map[string][]byte{}
+	if len(oids) == 0 {
+		return res, nil
+	}
+	cmd := exec.Command("git", "cat-file", "--batch")
+	cmd.Dir = dir
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	var in bytes.Buffer
+	for _, o := range oids {
+		in.WriteString(o)
+		in.WriteByte('\n')
+	}
+	cmd.Stdin = &in
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	r := bufio.NewReader(out)
+	var readErr error
+	for range oids {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			readErr = err
+			break
+		}
+		f := strings.Fields(line)
+		if len(f) != 3 { // "<oid> missing"
+			continue
+		}
+		size, err := strconv.ParseInt(f[2], 10, 64)
+		if err != nil {
+			readErr = err
+			break
+		}
+		if size > limit || f[1] != "blob" {
+			if _, err := io.CopyN(io.Discard, r, size+1); err != nil {
+				readErr = err
+				break
+			}
+			continue
+		}
+		buf := make([]byte, size+1) // content plus the trailing newline
+		if _, err := io.ReadFull(r, buf); err != nil {
+			readErr = err
+			break
+		}
+		res[f[0]] = buf[:size]
+	}
+	_, _ = io.Copy(io.Discard, r)
+	if err := cmd.Wait(); err != nil || readErr != nil {
+		return nil, fmt.Errorf("git cat-file --batch: %v %v %s", err, readErr, strings.TrimSpace(stderr.String()))
+	}
+	return res, nil
 }
 
 // pickCowSource chooses the worktree closest (in commits) to the target.
