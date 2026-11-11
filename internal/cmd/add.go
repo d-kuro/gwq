@@ -20,6 +20,7 @@ var (
 	addExpires     string
 	addCow         bool
 	addCowFallback bool
+	addCowVerify   bool
 )
 
 // addCmd represents the add command.
@@ -63,6 +64,7 @@ func init() {
 	addCmd.Flags().BoolVarP(&addStay, "stay", "s", false, "Stay in worktree directory after creation")
 	addCmd.Flags().BoolVar(&addCow, "cow", false, "Create the worktree with copy-on-write reflinks (requires Linux and a reflink-capable filesystem such as XFS or btrfs)")
 	addCmd.Flags().BoolVar(&addCowFallback, "cow-fallback", false, "With --cow, fall back to a normal checkout (with a warning) when reflinks are not possible")
+	addCmd.Flags().BoolVar(&addCowVerify, "verify", false, "With --cow, hash every reflinked file against its Git blob or LFS SHA-256 instead of trusting the source worktree's index (slower)")
 	addCmd.Flags().StringVar(&addExpires, "expires", "", "Set expiration (e.g., 1d, 7d, 1h)")
 }
 
@@ -123,10 +125,13 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		if addCowFallback && !addCow {
 			return fmt.Errorf("--cow-fallback requires --cow")
 		}
+		if addCowVerify && !addCow {
+			return fmt.Errorf("--verify requires --cow")
+		}
 		var worktreePath string
 		var err error
 		if addCow {
-			worktreePath, err = ctx.WorktreeManager.AddCow(branch, path, addBranch, git.CowOptions{Fallback: addCowFallback})
+			worktreePath, err = ctx.WorktreeManager.AddCow(branch, path, addBranch, git.CowOptions{Fallback: addCowFallback, Verify: addCowVerify})
 		} else {
 			worktreePath, err = ctx.WorktreeManager.Add(branch, path, addBranch)
 		}

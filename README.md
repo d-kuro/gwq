@@ -110,15 +110,29 @@ gwq add --cow -b feature/new-ui
 
 # Allow normal checkout when reflinks are unavailable
 gwq add --cow --cow-fallback -b feature/new-ui
+
+# Hash every reflinked file before trusting it (slower)
+gwq add --cow --verify -b feature/new-ui
 ```
 
-**Flags**: `-b` (new branch), `-i` (interactive), `-s` (stay), `-f` (force), `--cow`, `--cow-fallback`
+**Flags**: `-b` (new branch), `-i` (interactive), `-s` (stay), `-f` (force), `--cow`, `--cow-fallback`, `--verify`
 
 `--cow` requires Git 2.36+ and Linux with a reflink-capable filesystem such as
 XFS (`reflink=1`) or btrfs. Keep the source checkout, destination and local LFS
 store on the same filesystem. An existing checkout supplies unchanged files;
-hydrated LFS files use verified local LFS objects. Each clone is checked against
-its Git blob or LFS SHA-256 before use. Files remain independent when edited.
+hydrated LFS files use verified local LFS objects. Files remain independent when
+edited.
+
+By default, clones are not hashed. A file is cloned only if it is stat-clean in the
+source worktree's index (the same proof `git status` trusts: timestamps, inode,
+owner and size match, and the file is older than the index file) and its index
+entry has the blob and mode of the new commit; the source is re-checked after
+the clone. An LFS object taken from the local LFS store (because no source
+file can be used) is still hashed. The new worktree's index is written directly, with the stat data of
+the cloned files. If the source index cannot serve as proof (index v4, split or
+sparse index, unmerged or skip-worktree entries, bad checksum), a warning is
+printed and every clone is proven by hashing instead. `--verify` always does
+that: each clone is checked against its Git blob or LFS SHA-256 before use.
 
 Git checks out changed files and files requiring other content conversions.
 LFS skip-smudge and include/exclude settings are left to Git/LFS. SHA-256
